@@ -15,13 +15,48 @@ FETCHER_SCRIPT="$BIN_DIR/waylume-fetch"
 INSTALL_TARGET="$BIN_DIR/waylume"
 
 # --- Default config values ---
-DEST_DIR="$HOME/Pictures/WayLume"
+DEST_DIR="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")/WayLume"
 INTERVAL="1h"
 SOURCES="Unsplash"
+
+# --- Tray icon state ---
+NOTIF_PID=""
+NOTIF_FD=""
 
 # ====================================================
 # FUNCTIONS
 # ====================================================
+
+# Start a persistent tray icon using zenity --notification --listen
+start_tray() {
+    if ! zenity --notification --help &>/dev/null; then return; fi
+    coproc NOTIF_PROC { zenity --notification --listen 2>/dev/null; }
+    NOTIF_PID=$NOTIF_PROC_PID
+    NOTIF_FD=${NOTIF_PROC[1]}
+    echo "icon: $ICON_DIR/waylume.svg" >&"$NOTIF_FD" 2>/dev/null
+    echo "tooltip: WayLume - Gerenciador de Wallpapers" >&"$NOTIF_FD" 2>/dev/null
+    trap 'kill "$NOTIF_PID" 2>/dev/null; wait "$NOTIF_PID" 2>/dev/null' EXIT
+}
+
+# Update the tray tooltip to reflect current operation
+tray_status() {
+    [ -n "$NOTIF_FD" ] && echo "tooltip: WayLume — $1" >&"$NOTIF_FD" 2>/dev/null
+}
+
+# Show a pulsate progress dialog and run a command, then dismiss it
+run_with_progress() {
+    local MSG="$1"; shift
+    tray_status "$MSG"
+    zenity --progress --pulsate --auto-close \
+        --title="WayLume" --text="$MSG" \
+        --width=340 --no-cancel < /dev/null &
+    local ZPID=$!
+    "$@"
+    local RC=$?
+    kill $ZPID 2>/dev/null; wait $ZPID 2>/dev/null
+    tray_status "Gerenciador de Wallpapers"
+    return $RC
+}
 
 # Check and install missing runtime dependencies
 check_dependencies() {
@@ -74,7 +109,7 @@ save_config() {
 # Load config from disk, applying defaults for missing keys
 load_config() {
     source "$CONF_FILE" 2>/dev/null
-    [ -z "$DEST_DIR" ] && DEST_DIR="$HOME/Pictures/WayLume"
+    [ -z "$DEST_DIR" ] && DEST_DIR="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")/WayLume"
     [ -z "$INTERVAL" ] && INTERVAL="1h"
     [ -z "$SOURCES" ]  && SOURCES="Unsplash"
 }
@@ -87,6 +122,13 @@ deploy_services() {
     cat << 'EOF' > "$FETCHER_SCRIPT"
 #!/bin/bash
 # WayLume Fetcher - runs via systemd or manually
+
+# Export environment needed for gsettings/notify-send when running via systemd
+# Use :- to not override values already set in a graphical session
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DISPLAY="${DISPLAY:-:0}"
+
 source "$HOME/.config/waylume/waylume.conf"
 mkdir -p "$DEST_DIR"
 
@@ -106,21 +148,70 @@ else
     FILE_NAME="waylume_$(date +%Y%m%d_%H%M%S).jpg"
     TARGET_PATH="$DEST_DIR/$FILE_NAME"
 
+    IMG_TITLE=""
+
     case "$SELECTED_SOURCE" in
         "Bing")
-            curl -sL "https://bing.biturl.top/?resolution=1920&format=image&index=0&mkt=pt-BR" -o "$TARGET_PATH"
+            BING_JSON=$(curl -sL "https://bing.biturl.top/?resolution=1920&format=js&index=0&mkt=pt-BR")
+            BING_URL=$(echo "$BING_JSON" | grep -oP '"url"\s*:\s*"\K[^"]+' 2>/dev/null)
+            IMG_TITLE=$(echo "$BING_JSON" | grep -oP '"copyright"\s*:\s*"\K[^"]+' 2>/dev/null)
+            [ -n "$BING_URL" ] && curl -sL "$BING_URL" -o "$TARGET_PATH"
             ;;
         "Unsplash")
             curl -sL "https://picsum.photos/1920/1080.jpg" -o "$TARGET_PATH"
+            IMG_TITLE="Unsplash / picsum.photos"
             ;;
         "APOD")
-            APOD_JSON=$(curl -sL "https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY")
-            APOD_URL=$(echo "$APOD_JSON" | grep -oP '"hdurl"\s*:\s*"\K[^"]+' 2>/dev/null)
-            [ -z "$APOD_URL" ] && APOD_URL=$(echo "$APOD_JSON" | grep -oP '"url"\s*:\s*"\K[^"]+' 2>/dev/null)
+            # Try today first, fall back up to 7 days if media_type is video
+            APOD_URL=""
+            for DAYS_AGO in 0 1 2 3 4 5 6 7; do
+                APOD_DATE=$(date -d "-${DAYS_AGO} days" +%Y-%m-%d)
+                APOD_JSON=$(curl -sL "https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY&date=${APOD_DATE}")
+                MEDIA_TYPE=$(echo "$APOD_JSON" | grep -oP '"media_type"\s*:\s*"\K[^"]+' 2>/dev/null)
+                if [ "$MEDIA_TYPE" = "image" ]; then
+                    APOD_URL=$(echo "$APOD_JSON" | grep -oP '"hdurl"\s*:\s*"\K[^"]+' 2>/dev/null)
+                    [ -z "$APOD_URL" ] && APOD_URL=$(echo "$APOD_JSON" | grep -oP '"url"\s*:\s*"\K[^"]+' 2>/dev/null)
+                    if [ -n "$APOD_URL" ]; then
+                        IMG_TITLE=$(echo "$APOD_JSON" | grep -oP '"title"\s*:\s*"\K[^"]+' 2>/dev/null)
+                        break
+                    fi
+                fi
+            done
             [ -n "$APOD_URL" ] && curl -sL "$APOD_URL" -o "$TARGET_PATH"
             ;;
     esac
     MESSAGE="Novo wallpaper baixado via $SELECTED_SOURCE"
+fi
+
+# Validate the file is actually an image before applying
+if [ -f "$TARGET_PATH" ]; then
+    MIME=$(file --mime-type -b "$TARGET_PATH")
+    if [[ "$MIME" != image/* ]]; then
+        notify-send "WayLume" "⚠️ Download inválido ignorado ($MIME). Tente novamente."
+        rm -f "$TARGET_PATH"
+        exit 1
+    fi
+fi
+
+# Overlay title bar on the image using ImageMagick (optional — skipped if not installed)
+if [ -n "$IMG_TITLE" ] && [ -f "$TARGET_PATH" ] && command -v convert &>/dev/null; then
+    # Truncate very long titles to avoid overflow
+    DISPLAY_TITLE="${IMG_TITLE:0:120}"
+    W=$(identify -format "%w" "$TARGET_PATH" 2>/dev/null)
+    H=$(identify -format "%h" "$TARGET_PATH" 2>/dev/null)
+    if [ -n "$W" ] && [ -n "$H" ]; then
+        BAR=52
+        Y_BAR=$(( H - BAR ))
+        convert "$TARGET_PATH" \
+            -fill '#00000099' \
+            -draw "rectangle 0,${Y_BAR} ${W},${H}" \
+            -gravity SouthWest \
+            -fill white \
+            -font DejaVu-Sans \
+            -pointsize 24 \
+            -annotate +20+14 "  ${DISPLAY_TITLE}  " \
+            "$TARGET_PATH" 2>/dev/null
+    fi
 fi
 
 # Apply wallpaper on GNOME (light and dark modes)
@@ -149,6 +240,7 @@ EOF
 Description=WayLume Wallpaper Timer
 
 [Timer]
+OnBootSec=1min
 OnUnitActiveSec=$INTERVAL
 Persistent=true
 
@@ -156,8 +248,14 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
-    systemctl --user daemon-reload
-    systemctl --user enable --now waylume.timer
+    # Show progress while running systemd commands
+    run_with_progress "Aplicando configurações e reiniciando timer..." \
+        bash -c '
+            systemctl --user daemon-reload
+            systemctl --user disable waylume.timer 2>/dev/null
+            systemctl --user enable --now waylume.timer
+            systemctl --user start waylume.service
+        '
 
     zenity --info --title="WayLume" \
         --text="Scripts gerados e Timer ativado!\nO sistema rodará a cada $INTERVAL."
@@ -305,6 +403,27 @@ set_image_sources() {
     fi
 }
 
+# Remove non-image files from the gallery
+clean_gallery() {
+    local INVALID=()
+    while IFS= read -r -d '' f; do
+        MIME=$(file --mime-type -b "$f")
+        [[ "$MIME" != image/* ]] && INVALID+=("$f")
+    done < <(find "$DEST_DIR" -type f \( -iname "*.jpg" -o -iname "*.png" -o -iname "*.webp" \) -print0)
+
+    if [ ${#INVALID[@]} -eq 0 ]; then
+        zenity --info --title="WayLume" --text="Nenhum arquivo inválido encontrado na galeria. ✅"
+        return
+    fi
+
+    zenity --question --title="WayLume - Limpar Galeria" \
+        --text="Encontrados ${#INVALID[@]} arquivo(s) corrompido(s):\n$(printf '%s\n' "${INVALID[@]}")\n\nDeseja removê-los?"
+    if [ $? -eq 0 ]; then
+        rm -f "${INVALID[@]}"
+        zenity --info --title="WayLume" --text="${#INVALID[@]} arquivo(s) removido(s) da galeria."
+    fi
+}
+
 # Apply a random wallpaper from the local gallery immediately
 fetch_and_apply_wallpaper() {
     if [ ! -f "$FETCHER_SCRIPT" ]; then
@@ -312,8 +431,9 @@ fetch_and_apply_wallpaper() {
             --text="Os scripts ainda não foram gerados.\nClique em 'Instalar/Atualizar Scripts' primeiro."
         return
     fi
-    # Run without --random: downloads a fresh image from the configured sources
-    "$FETCHER_SCRIPT"
+
+    # Show progress while downloading/applying
+    run_with_progress "Baixando e aplicando novo wallpaper..." "$FETCHER_SCRIPT"
 }
 
 # ====================================================
@@ -344,9 +464,11 @@ fi
 # ====================================================
 
 load_config
+start_tray
 
 while true; do
     CHOICE=$(zenity --list --title="WayLume - Configuração" \
+        --window-icon="$ICON_DIR/waylume.svg" \
         --text="Gerenciador de Wallpapers para GNOME\nGaleria Atual: $DEST_DIR\nAtualização: $INTERVAL" \
         --column="Opção" --column="Ação" --hide-column=1 \
         1 "📂 1. Escolher pasta da galeria" \
@@ -354,9 +476,10 @@ while true; do
         3 "🌍 3. Escolher fontes de imagens" \
         4 "🚀 4. Instalar/Atualizar Scripts e Timer" \
         5 "🎲 5. Mudar imagem AGORA (Baixar nova)" \
-        6 "🗑️ 6. Remover WayLume" \
-        7 "🚪 7. Sair" \
-        --width=500 --height=500)
+        6 "🧹 6. Limpar galeria (remover arquivos inválidos)" \
+        7 "🗑️ 7. Remover WayLume" \
+        8 "🚪 8. Sair" \
+        --width=500 --height=560)
 
     # Exit when user closes the window, clicks Cancel, or chooses Sair
     [ $? -ne 0 ] && break
@@ -367,7 +490,8 @@ while true; do
         3) set_image_sources         ;;
         4) deploy_services           ;;
         5) fetch_and_apply_wallpaper ;;
-        6) uninstall                 ;;
-        7) break                     ;;
+        6) clean_gallery             ;;
+        7) uninstall                 ;;
+        8) break                     ;;
     esac
 done
