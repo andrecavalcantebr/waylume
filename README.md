@@ -1,4 +1,4 @@
-# WayLume 🌌
+# <img src="src/waylume.svg" width="52" align="center" alt="WayLume icon"> WayLume
 
 WayLume é um gerenciador de papéis de parede minimalista, autônomo e de consumo zero de recursos em background, projetado especificamente para ambientes Wayland (atualmente focado no **GNOME**).
 
