@@ -1,79 +1,109 @@
 # WayLume 🌌
 
-WayLume é um gerenciador de papéis de parede minimalist, autônomo e de consumo zero de recursos em background, projetado especificamente para ambientes Wayland (atualmente focado no **GNOME**).
+WayLume é um gerenciador de papéis de parede minimalista, autônomo e de consumo zero de recursos em background, projetado especificamente para ambientes Wayland (atualmente focado no **GNOME**).
 
 Ele foi criado para preencher a lacuna deixada por ferramentas como o Variety, que enfrentam problemas de estabilidade no Wayland, optando por uma arquitetura robusta baseada em **Systemd Timers** e scripts nativos em vez de daemons persistentes.
 
 ## ✨ Destaques
 
-* **Unix Way:** Um único script (`waylume.sh`) que atua como instalador, configurador (GUI), gerador de serviços e desinstalador.
 * **Consumo Zero:** Não roda em background. A GUI abre apenas quando você quer configurar. O Systemd cuida do agendamento.
-* **Agnóstico de Daemon:** Ao clicar em fechar, nenhuma RAM é consumida pelo WayLume.
-* **Fontes Nativas:** Baixa imagens dinâmicas do Bing (Foto do Dia), NASA APOD (Astronomy Picture of the Day) ou Unsplash (Natureza).
-* **Resiliência:** O Systemd Timer com `Persistent=true` garante que atualizações perdidas (com o PC desligado) sejam executadas assim que você logar.
-* **Desinstalação Limpa:** Inclui uma opção de remoção completa que remove timers, scripts e arquivos de configuração, mantendo apenas as suas fotos baixadas.
+* **Agnóstico de Daemon:** Ao fechar a janela, nenhuma RAM é consumida pelo WayLume.
+* **Três Fontes de Imagens:** Bing (Foto do Dia), NASA APOD (Astronomy Picture of the Day) ou Unsplash — escolha uma ou mais.
+* **Inteligente:** Fontes com imagem-do-dia (APOD, Bing) baixam apenas uma vez por dia. Nas execuções seguintes do timer, o WayLume rotaciona automaticamente pela galeria local — sem desperdício de banda.
+* **Título Sobreposto:** Quando disponível, o título da imagem é renderizado diretamente no wallpaper via ImageMagick (opcional).
+* **Resiliência:** O Systemd Timer com `Persistent=true` garante que execuções perdidas (PC desligado) sejam recuperadas ao logar.
+* **Desinstalação Limpa:** Remove timers, scripts e configurações sem apagar sua galeria de fotos.
+* **Distribuição em Arquivo Único:** O `waylume.sh` é auto-suficiente — instalador, configurador (GUI), gerador de serviços e desinstalador, tudo em um script.
 
 ## 🛠️ Pré-requisitos
 
-O script `waylume.sh` tentará instalar automaticamente os pré-requisitos na primeira execução (requer `sudo`). Os pacotes necessários são:
+O script tentará instalar automaticamente os pré-requisitos na primeira execução (requer `sudo`). Os pacotes necessários são:
 
-* `zenity` (para a interface gráfica)
-* `curl` (para baixar as imagens)
-* `notify-send` / `libnotify` (para notificações discretas)
+* `yad` — interface gráfica (diálogos)
+* `curl` — download das imagens
+* `libnotify` / `notify-send` — notificações do sistema
+* `file` — validação do tipo MIME das imagens baixadas
+* `imagemagick` *(opcional)* — sobreposição do título da imagem no wallpaper
 
 ## 🚀 Instalação e Uso
 
-O WayLume segue uma filosofia de instalação baseada na home do usuário (`~/.local/...`), sem poluir o sistema.
-
-1.  **Clone ou Baixe o repositório** em uma pasta qualquer (ex: `~/Downloads/waylume`).
-
-2.  Garante que o ícone `waylume.svg` está na mesma pasta.
-
-3.  **Torne o script executável** e rode-o:
+O WayLume instala tudo na home do usuário (`~/.local/...`), sem precisar de `sudo` após a instalação de dependências.
 
 ```bash
+git clone https://github.com/andrecavalcantebr/waylume.git
+cd waylume
 chmod +x waylume.sh
 ./waylume.sh
 ```
 
-4. O script detectará que não está instalado e oferecerá a auto-instalação para ~/.local/bin/waylume.
+O script detectará que não está instalado e oferecerá a auto-instalação. A partir daí, feche o terminal — o WayLume aparecerá no menu de aplicativos do sistema (busque por "WayLume").
 
-5. A partir de agora, você pode fechar o terminal. O WayLume aparecerá no seu menu de aplicativos (em Acessórios ou buscando por "WayLume").
+Para instalar diretamente sem a pergunta interativa:
 
+```bash
+./waylume.sh --install
+```
 
-## No Menu de Configuração
+## ⚙️ Menu de Configuração
 
-Ao abrir o WayLume pelo menu do sistema, você poderá configurar:
+Ao abrir o WayLume pelo menu do sistema:
 
-1. 📂 Pasta da galeria: Onde as fotos serão salvas.
+| Opção | Descrição |
+|---|---|
+| 📂 Pasta da galeria | Onde as fotos serão salvas |
+| ⏱️ Tempo de atualização | Intervalo do Systemd Timer (minutos ou horas) |
+| 🌍 Fontes de imagens | Bing, Unsplash e/ou APOD |
+| 🔑 API Key da NASA | Chave para a API do APOD (padrão: `DEMO_KEY`) |
+| 🚀 Instalar/Atualizar Scripts | Aplica configurações e reinicia o timer |
+| 🎲 Mudar imagem AGORA | Rotaciona imediatamente pela galeria local |
+| 🧹 Limpar galeria | Remove arquivos corrompidos ou inválidos |
+| 🗑️ Remover WayLume | Desinstalação completa (galeria preservada) |
 
-1. ⏱️ Tempo de atualização: De quanto em quanto tempo o Systemd baixará uma foto nova.
+> **NASA APOD API Key:** A chave `DEMO_KEY` funciona, mas tem limite de 30 req/hora. Para uso contínuo, registre uma chave gratuita em [api.nasa.gov](https://api.nasa.gov) (limite: 1.000 req/dia) e informe no menu **🔑 API Key da NASA**.
 
-1. 🌍 Fontes de imagens: Escolher entre Bing, Unsplash e APOD.
+## 📁 Arquivos Instalados
 
-1. 🚀 Instalar/Atualizar Scripts: É necessário clicar aqui após mudar as opções 1, 2 ou 3 para que as mudanças no Systemd sejam aplicadas.
+Seguindo o padrão XDG, tudo vai para a home do usuário:
 
-1. 🎲 Mudar imagem AGORA: Sorteia uma imagem da sua galeria local e aplica instantaneamente (o "Próximo" do Variety).
+| Arquivo | Local |
+|---|---|
+| Script principal | `~/.local/bin/waylume` |
+| Worker do Systemd | `~/.local/bin/waylume-fetch` |
+| Ícone | `~/.local/share/icons/hicolor/scalable/apps/waylume.svg` |
+| Atalho do menu | `~/.local/share/applications/waylume.desktop` |
+| Configuração | `~/.config/waylume/waylume.conf` |
+| Estado de downloads | `~/.config/waylume/waylume.state` |
+| Timer e Service | `~/.config/systemd/user/waylume.*` |
+| Galeria de imagens | `~/Imagens/WayLume` *(padrão, configurável)* |
 
-1. 🗑️ Remover WayLume: Faz a faxina completa do sistema.
+## 🛠️ Para Desenvolvedores
 
-## 📁 Estrutura de Pastas
+O `waylume.sh` é um **artefato gerado** — não edite-o diretamente. Os fontes estão em `src/`:
 
-Para manter tudo organizado seguindo o padrão XDG, o WayLume instala os arquivos nos seguintes locais da sua Home:
+```
+src/
+  fetcher.sh    ← worker do Systemd (waylume-fetch): lógica de download e aplicação
+  main.sh       ← instalador e GUI: menus, configuração, deploy de serviços
+  waylume.svg   ← ícone da aplicação (editável com Inkscape ou à mão)
+build.sh        ← combina os três arquivos e gera waylume.sh
+waylume.sh      ← saída do build (arquivo distribuído)
+```
 
-- Binário e Icone: ~/.local/bin/, ~/.local/share/icons/
+### Ciclo de desenvolvimento
 
-- Interface (Menu): ~/.local/share/applications/waylume.desktop
+```bash
+# 1. Edite os fontes em src/
+nano src/fetcher.sh
 
-- Configuração: ~/.config/waylume/waylume.conf
+# 2. Teste o fetcher isoladamente (sem precisar instalar)
+bash src/fetcher.sh
 
-- Background Worker: ~/.local/bin/waylume-fetch
+# 3. Rebuild e reinstale
+./build.sh && ./waylume.sh --install
+```
 
-- Agendador: ~/.config/systemd/user/waylume.*
-
-- Imagens: ~/Pictures/WayLume (padrão)
+O `build.sh` embute `src/fetcher.sh` e `src/waylume.svg` nos respectivos heredocs de `src/main.sh`, produzindo o `waylume.sh` auto-suficiente. Requer Python 3 (presente em qualquer distro moderna).
 
 ## 📄 Licença
 
-Este projeto está licenciado sob a GNU General Public License v3.0 (GPLv3) - [veja o arquivo LICENSE.md](LICENSE.md) para detalhes.
-
+Este projeto está licenciado sob a GNU General Public License v3.0 (GPLv3) — [veja o arquivo LICENSE.md](LICENSE.md) para detalhes.
