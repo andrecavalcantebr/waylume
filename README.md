@@ -3,7 +3,7 @@
 🌐 **Escolha o idioma / Choose your language:**
 
 | | Idioma | README |
-|---|---|---|
+| --- | --- | --- |
 | 🇧🇷 | Português | [README.pt.md](README.pt.md) |
 | 🇺🇸 | English | [README.en.md](README.en.md) |
 

@@ -10,7 +10,8 @@
 - **Branch:** main
 - **Último commit:** `4eb823e` — feat: i18n integração completa — strings externalizadas, auto-detecção de LANG
 - **Git log:**
-  ```
+
+  ```text
   4eb823e  feat: i18n integração completa — strings externalizadas, auto-detecção de LANG
   87ed124  docs: README.md vira hub de idiomas; conteúdo PT em README.pt.md
   b58e767  docs: atualizar CHECKPOINT — i18n scaffolding e brand strip text
@@ -24,7 +25,7 @@
 
 ## Estrutura de arquivos
 
-```
+```text
 waylume/
   src/
     main.sh       (505 linhas) — instalador e GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
@@ -44,8 +45,10 @@ waylume/
 ```
 
 ### Regra de ouro
+
 **Sempre editar em `src/`, nunca em `waylume.sh` diretamente.**  
 Após qualquer mudança:
+
 ```bash
 ./build.sh && ./waylume.sh --install
 ```
@@ -57,7 +60,7 @@ Após qualquer mudança:
 O `build.sh` usa Python 3 para substituir quatro placeholders em `src/main.sh`:
 
 | Placeholder | Substituído por |
-|---|---|
+| --- | --- |
 | `##FETCHER_CONTENT##` | conteúdo de `src/fetcher.sh` |
 | `##ICON_CONTENT##` | conteúdo de `src/waylume.svg` |
 | `##I18N_PT##` | conteúdo de `src/i18n/pt.sh` |
@@ -98,7 +101,7 @@ source "$CONFIG_DIR/i18n/${_wl_lang}.sh" 2>/dev/null \
 ```
 
 | LANG | Resultado |
-|---|---|
+| --- | --- |
 | `pt_BR.UTF-8`, `pt_PT.UTF-8`, `pt` | `pt.sh` ✅ |
 | `en_US.UTF-8`, `en_AU.UTF-8`, `en_GB.UTF-8`, `en` | `en.sh` ✅ |
 | `de_DE.UTF-8`, `C`, vazio | fallback `pt.sh` |
@@ -138,8 +141,9 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 ## Funcionalidades implementadas
 
 ### Menu (src/main.sh)
+
 | Opção | Função |
-|---|---|
+| --- | --- |
 | 📂 Pasta da galeria | `set_gallery_dir` |
 | ⏱️ Tempo de atualização | `set_update_interval` |
 | 🌍 Fontes de imagens | `set_image_sources` |
@@ -150,6 +154,7 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 | 🗑️ Remover WayLume | `uninstall` |
 
 ### Fetcher (src/fetcher.sh)
+
 - **3 fontes:** Bing (foto do dia), Unsplash (aleatório), APOD (NASA)
 - **Cache diário:** APOD e Bing baixam apenas 1x/dia; execuções seguintes do timer rotacionam da galeria local (~0.06s, sem rede)
 - **Estado persistido:** `~/.config/waylume/waylume.state` (`APOD_LAST_DATE`, `BING_LAST_DATE`)
@@ -159,6 +164,7 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 - **APOD:** usa `url` (960px) em vez de `hdurl` (4K) — ~10x mais rápido
 
 ### Bugs corrigidos (sessões anteriores)
+
 - `yad_info/error/question` chamavam a si mesmas recursivamente → segfault
 - `SOURCES` salvo pelo yad com `\n` literal → `case` não casava → fontes nunca baixavam
 - Overlay de título com `-fill '#00000099' -draw "rectangle"` invisível em JPEG (corrigido com composite)
@@ -194,7 +200,7 @@ git push origin main
 
 **Abordagem:** cada fonte vira um arquivo independente em `src/sources/`.
 
-```
+```text
 src/
   sources/
     apod.sh       ← testável com: bash src/sources/apod.sh
@@ -204,6 +210,7 @@ src/
 ```
 
 **Convenção de interface (a definir):**
+
 - Entrada: `$TARGET_PATH` (onde salvar), variáveis do `waylume.conf`
 - Saída: arquivo de imagem gravado + `$IMG_TITLE` + `$MESSAGE`
 - Cache de data: cada fonte gerencia o seu próprio no `waylume.state`
@@ -216,7 +223,7 @@ Com apenas 3 fontes, o custo de setup não se justifica ainda.
 ## Decisões de arquitetura já consolidadas
 
 | Decisão | Raciocínio |
-|---|---|
+| --- | --- |
 | `waylume.sh` é artefato único distribuído | Preserva "Unix Way": `curl .../waylume.sh \| bash` funciona |
 | `src/` contém os fontes de desenvolvimento | Syntax highlighting, shellcheck, testabilidade isolada |
 | `.desktop`, `.service`, `.timer` permanecem como heredocs em `src/main.sh` | Dependem de variáveis interpoladas em tempo de deploy (`$INTERVAL`, `$FETCHER_SCRIPT`) |

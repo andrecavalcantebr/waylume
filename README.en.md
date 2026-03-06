@@ -51,7 +51,7 @@ To install directly without the interactive prompt:
 When opening WayLume from the system menu:
 
 | Option | Description |
-|---|---|
+| --- | --- |
 | 📂 Gallery folder | Where photos will be saved |
 | ⏱️ Update interval | Systemd Timer interval (minutes or hours) |
 | 🌍 Image sources | Bing, Unsplash and/or APOD |
@@ -68,7 +68,7 @@ When opening WayLume from the system menu:
 Following the XDG standard, everything goes into the user's home:
 
 | File | Location |
-|---|---|
+| --- | --- |
 | Main script | `~/.local/bin/waylume` |
 | Systemd worker | `~/.local/bin/waylume-fetch` |
 | Icon | `~/.local/share/icons/hicolor/scalable/apps/waylume.svg` |
@@ -82,7 +82,7 @@ Following the XDG standard, everything goes into the user's home:
 
 The `waylume.sh` is a **generated artifact** — do not edit it directly. Sources are in `src/`:
 
-```
+```text
 src/
   fetcher.sh    ← Systemd worker (waylume-fetch): download and apply logic
   main.sh       ← installer and GUI: menus, config, service deployment
@@ -110,7 +110,7 @@ bash src/fetcher.sh
 ``build.sh`` embeds `src/fetcher.sh`, `src/waylume.svg`, `src/i18n/pt.sh` and `src/i18n/en.sh` into their respective placeholders in `src/main.sh`, producing the self-contained `waylume.sh`. Requires Python 3 (present on any modern distro).
 
 | Placeholder in `src/main.sh` | Replaced by |
-|---|---|
+| --- | --- |
 | `##FETCHER_CONTENT##` | `src/fetcher.sh` |
 | `##ICON_CONTENT##` | `src/waylume.svg` |
 | `##I18N_PT##` | `src/i18n/pt.sh` |
@@ -118,7 +118,7 @@ bash src/fetcher.sh
 
 The `##I18N_*##` placeholders live inside heredocs in `install_or_update`. When `waylume.sh --install` runs, those heredocs are written to:
 
-```
+```text
 ~/.config/waylume/i18n/
   pt.sh
   en.sh
