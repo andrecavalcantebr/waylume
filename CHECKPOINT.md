@@ -8,15 +8,16 @@
 
 - **Repo:** github.com/andrecavalcantebr/waylume
 - **Branch:** main
-- **Latest commit:** `fbbd706` — chore: update CHECKPOINT to session 06/03/2026
+- **Latest commit:** `5238bed` — docs: translate CHECKPOINT.md fully to English
 - **Git log:**
 
   ```text
+  5238bed  (HEAD -> main, origin/main) docs: translate CHECKPOINT.md fully to English
   fbbd706  chore: update CHECKPOINT to session 06/03/2026
   e7afc24  chore: fix all markdown lint issues across project files
   c9d7a7a  docs: document i18n build embedding and runtime extraction in developer sections
   b41647e  feat: i18n, brand overlay, bilingual docs, and locale fixes
-  31a284e  (origin/main) chore: adicionar CHECKPOINT da sessão 04/03/2026
+  31a284e  chore: adicionar CHECKPOINT da sessão 04/03/2026
   ```
 
 ---
@@ -194,12 +195,7 @@ APOD_API_KEY="DEMO_KEY
 
 ### 1. Push to origin
 
-```bash
-git push --force-with-lease origin main
-```
-
-History was rewritten (squash of 14 commits → 1). `origin/main` points to `31a284e`;
-4 local commits not yet on GitHub (`b41647e`, `c9d7a7a`, `e7afc24`, `fbbd706`).
+✅ Done. `origin/main` is in sync with `HEAD` (`5238bed`).
 
 ### 2. Source modularisation — when a 4th source is added
 
