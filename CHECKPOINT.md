@@ -1,4 +1,4 @@
-# CHECKPOINT — Sessão 05/03/2026
+# CHECKPOINT — Sessão 06/03/2026
 
 > Leia este arquivo no início de cada sessão para recuperar o contexto de desenvolvimento.
 
@@ -8,16 +8,13 @@
 
 - **Repo:** github.com/andrecavalcantebr/waylume
 - **Branch:** main
-- **Último commit:** `4eb823e` — feat: i18n integração completa — strings externalizadas, auto-detecção de LANG
+- **Último commit:** `e7afc24` — chore: fix all markdown lint issues across project files
 - **Git log:**
 
   ```text
-  4eb823e  feat: i18n integração completa — strings externalizadas, auto-detecção de LANG
-  87ed124  docs: README.md vira hub de idiomas; conteúdo PT em README.pt.md
-  b58e767  docs: atualizar CHECKPOINT — i18n scaffolding e brand strip text
-  bba49eb  feat: i18n scaffolding — pt.sh / en.sh + README bilíngue
-  2a3ba8b  refactor: substituir brand.png por texto puro no overlay do wallpaper
-  6ccda8a  feat: brand strip (ícone + WayLume + QR code) no overlay do wallpaper
+  e7afc24  chore: fix all markdown lint issues across project files
+  c9d7a7a  docs: document i18n build embedding and runtime extraction in developer sections
+  b41647e  feat: i18n, brand overlay, bilingual docs, and locale fixes
   31a284e  (origin/main) chore: adicionar CHECKPOINT da sessão 04/03/2026
   ```
 
@@ -28,15 +25,18 @@
 ```text
 waylume/
   src/
-    main.sh       (505 linhas) — instalador e GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
-    fetcher.sh    (236 linhas) — worker do Systemd (waylume-fetch); testável isolado com: bash src/fetcher.sh
+    main.sh       (515 linhas) — instalador e GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
+    fetcher.sh    (237 linhas) — worker do Systemd (waylume-fetch); testável isolado com: bash src/fetcher.sh
     waylume.svg   ( 22 linhas) — ícone SVG da aplicação
     i18n/
       pt.sh       ( 99 linhas) — todas as strings em Português (Brasil)
       en.sh       ( 99 linhas) — todas as strings em English
   build.sh        ( 46 linhas) — combina os arquivos acima → waylume.sh
-  waylume.sh      (961 linhas) — ARTEFATO GERADO; não editar diretamente
-  README.md       (12 linhas)  — hub de idiomas (links → README.pt.md e README.en.md)
+  waylume.sh      (972 linhas) — ARTEFATO GERADO; não editar diretamente
+  README.md                    — hub de idiomas (links → README.pt.md e README.en.md)
+  .markdownlint.json           — regras desabilitadas: MD013, MD026, MD030, MD033, MD041
+  .markdownlintignore          — exclui LICENSE.md (texto GPLv3 canônico)
+  .vscode/settings.json        — markdownlint.ignore: ["LICENSE.md"]
   README.pt.md                 — documentação pública em Português
   README.en.md                 — documentação pública em English
   LICENSE.md                   — GPLv3 (texto autorizado em inglês)
@@ -92,28 +92,30 @@ Resultado: `waylume.sh` auto-suficiente (961 linhas, arquivo único para distrib
 ### Detecção de idioma
 
 ```bash
-_wl_lang="${LANG:-${LANGUAGE:-pt}}"
+_wl_lang="${LANG:-${LANGUAGE:-en}}"
 _wl_lang="${_wl_lang%%.*}"   # strip .UTF-8
 _wl_lang="${_wl_lang%%_*}"   # strip _BR, _US, _AU…
 _wl_lang="${_wl_lang,,}"     # lowercase
 source "$CONFIG_DIR/i18n/${_wl_lang}.sh" 2>/dev/null \
-    || source "$CONFIG_DIR/i18n/pt.sh" 2>/dev/null || true
+    || source "$CONFIG_DIR/i18n/en.sh" 2>/dev/null || true
 ```
 
 | LANG | Resultado |
 | --- | --- |
 | `pt_BR.UTF-8`, `pt_PT.UTF-8`, `pt` | `pt.sh` ✅ |
 | `en_US.UTF-8`, `en_AU.UTF-8`, `en_GB.UTF-8`, `en` | `en.sh` ✅ |
-| `de_DE.UTF-8`, `C`, vazio | fallback `pt.sh` |
+| `de_DE.UTF-8`, `C`, vazio | fallback `en.sh` |
+
+**LANG injected into systemd:** `Environment="LANG=${LANG}"` is written into the `.service` file at `deploy_services` time, so that `fetcher.sh` inherits the correct locale from the user session.
 
 ### First-run (antes do --install)
 
 Variáveis de botões e títulos têm **fallbacks inline** com `${VAR:=valor}` para funcionar sem i18n files:
 
 ```bash
-: "${BTN_CLOSE:=Fechar}"
-: "${BTN_YES:=Sim}"
-: "${BTN_NO:=Não}"
+: "${BTN_CLOSE:=Close}"
+: "${BTN_YES:=Yes}"
+: "${BTN_NO:=No}"
 : "${BTN_OK:=OK}"
 # etc.
 ```
@@ -191,10 +193,11 @@ APOD_API_KEY="KKa2wel7uNRXlBQVQTHScVwPTrYklxe79uRSRmX0"
 ### 1. Push para o origin
 
 ```bash
-git push origin main
+git push --force-with-lease origin main
 ```
 
-6 commits locais ainda não estão no GitHub.
+História foi reescrita (squash de 14 commits → 1). `origin/main` aponta para `31a284e`;
+3 commits locais ainda não estão no GitHub (`b41647e`, `c9d7a7a`, `e7afc24`).
 
 ### 2. Modularização das fontes — quando houver 4ª fonte
 
