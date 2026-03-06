@@ -1,17 +1,18 @@
-# CHECKPOINT — Sessão 06/03/2026
+# CHECKPOINT — Session 2026-03-06
 
-> Leia este arquivo no início de cada sessão para recuperar o contexto de desenvolvimento.
+> Read this file at the start of each session to recover development context.
 
 ---
 
-## Estado atual do repositório
+## Repository state
 
 - **Repo:** github.com/andrecavalcantebr/waylume
 - **Branch:** main
-- **Último commit:** `e7afc24` — chore: fix all markdown lint issues across project files
+- **Latest commit:** `fbbd706` — chore: update CHECKPOINT to session 06/03/2026
 - **Git log:**
 
   ```text
+  fbbd706  chore: update CHECKPOINT to session 06/03/2026
   e7afc24  chore: fix all markdown lint issues across project files
   c9d7a7a  docs: document i18n build embedding and runtime extraction in developer sections
   b41647e  feat: i18n, brand overlay, bilingual docs, and locale fixes
@@ -20,34 +21,34 @@
 
 ---
 
-## Estrutura de arquivos
+## File structure
 
 ```text
 waylume/
   src/
-    main.sh       (515 linhas) — instalador e GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
-    fetcher.sh    (237 linhas) — worker do Systemd (waylume-fetch); testável isolado com: bash src/fetcher.sh
-    waylume.svg   ( 22 linhas) — ícone SVG da aplicação
+    main.sh       (515 lines) — installer and GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
+    fetcher.sh    (237 lines) — systemd worker (waylume-fetch); standalone-testable with: bash src/fetcher.sh
+    waylume.svg   ( 22 lines) — application SVG icon
     i18n/
-      pt.sh       ( 99 linhas) — todas as strings em Português (Brasil)
-      en.sh       ( 99 linhas) — todas as strings em English
-  build.sh        ( 46 linhas) — combina os arquivos acima → waylume.sh
-  waylume.sh      (972 linhas) — ARTEFATO GERADO; não editar diretamente
-  README.md                    — hub de idiomas (links → README.pt.md e README.en.md)
-  .markdownlint.json           — regras desabilitadas: MD013, MD026, MD030, MD033, MD041
-  .markdownlintignore          — exclui LICENSE.md (texto GPLv3 canônico)
-  .vscode/settings.json        — markdownlint.ignore: ["LICENSE.md"]
-  README.pt.md                 — documentação pública em Português
-  README.en.md                 — documentação pública em English
-  LICENSE.md                   — GPLv3 (texto autorizado em inglês)
-  LICENSE.pt.md                — resumo informativo da GPLv3 em português (não substitui o EN)
-  CHECKPOINT.md               — este arquivo
+      pt.sh       ( 99 lines) — all strings in Brazilian Portuguese
+      en.sh       ( 99 lines) — all strings in English
+  build.sh        ( 46 lines) — combines the above files → waylume.sh
+  waylume.sh      (972 lines) — GENERATED ARTIFACT; do not edit directly
+  README.md                   — language hub (links → README.pt.md and README.en.md)
+  .markdownlint.json          — disabled rules: MD013, MD026, MD030, MD033, MD041
+  .markdownlintignore         — excludes LICENSE.md (canonical GPLv3 text)
+  .vscode/settings.json       — markdownlint.ignore: ["LICENSE.md"]
+  README.pt.md                — public documentation in Portuguese
+  README.en.md                — public documentation in English
+  LICENSE.md                  — GPLv3 (authoritative English text)
+  LICENSE.pt.md               — informational GPLv3 summary in Portuguese (does not replace EN)
+  CHECKPOINT.md               — this file
 ```
 
-### Regra de ouro
+### Golden rule
 
-**Sempre editar em `src/`, nunca em `waylume.sh` diretamente.**  
-Após qualquer mudança:
+**Always edit in `src/`, never in `waylume.sh` directly.**
+After any change:
 
 ```bash
 ./build.sh && ./waylume.sh --install
@@ -55,18 +56,18 @@ Após qualquer mudança:
 
 ---
 
-## Arquitetura do build.sh
+## build.sh architecture
 
-O `build.sh` usa Python 3 para substituir quatro placeholders em `src/main.sh`:
+`build.sh` uses Python 3 to substitute four placeholders in `src/main.sh`:
 
-| Placeholder | Substituído por |
+| Placeholder | Replaced by |
 | --- | --- |
-| `##FETCHER_CONTENT##` | conteúdo de `src/fetcher.sh` |
-| `##ICON_CONTENT##` | conteúdo de `src/waylume.svg` |
-| `##I18N_PT##` | conteúdo de `src/i18n/pt.sh` |
-| `##I18N_EN##` | conteúdo de `src/i18n/en.sh` |
+| `##FETCHER_CONTENT##` | content of `src/fetcher.sh` |
+| `##ICON_CONTENT##` | content of `src/waylume.svg` |
+| `##I18N_PT##` | content of `src/i18n/pt.sh` |
+| `##I18N_EN##` | content of `src/i18n/en.sh` |
 
-Os placeholders `##I18N_PT##` e `##I18N_EN##` ficam **dentro de heredocs** em `install_or_update`:
+The `##I18N_PT##` and `##I18N_EN##` placeholders live **inside heredocs** in `install_or_update`:
 
 ```bash
 cat << 'WL_I18N_PT' > "$CONFIG_DIR/i18n/pt.sh"
@@ -74,22 +75,22 @@ cat << 'WL_I18N_PT' > "$CONFIG_DIR/i18n/pt.sh"
 WL_I18N_PT
 ```
 
-O Python os substitui antes do runtime, portanto o heredoc resultante contém o bundle de strings correto.
+Python substitutes them before runtime, so the resulting heredoc contains the correct string bundle.
 
-Resultado: `waylume.sh` auto-suficiente (961 linhas, arquivo único para distribuição).
+Result: `waylume.sh` is self-contained (972 lines, single file for distribution).
 
 ---
 
-## Internacionalização (i18n) — COMPLETA
+## Internationalisation (i18n) — COMPLETE
 
-### Arquitetura
+### Architecture
 
-- Bundles em `src/i18n/{lang}.sh` — variáveis `BTN_*`, `TITLE_*`, `MSG_*`, `COL_*`, `ITEM_*`, `LABEL_*`, `MENU_ITEM_*`
-- Embutidos em `waylume.sh` via `##I18N_PT##` / `##I18N_EN##` dentro de heredocs
-- Extraídos para `~/.config/waylume/i18n/` em `--install`
-- Carregados em runtime no início de `main.sh` e `fetcher.sh`
+- Bundles in `src/i18n/{lang}.sh` — variables `BTN_*`, `TITLE_*`, `MSG_*`, `COL_*`, `ITEM_*`, `LABEL_*`, `MENU_ITEM_*`
+- Embedded into `waylume.sh` via `##I18N_PT##` / `##I18N_EN##` inside heredocs
+- Extracted to `~/.config/waylume/i18n/` during `--install`
+- Loaded at runtime at the top of `main.sh` and `fetcher.sh`
 
-### Detecção de idioma
+### Language detection
 
 ```bash
 _wl_lang="${LANG:-${LANGUAGE:-en}}"
@@ -100,17 +101,18 @@ source "$CONFIG_DIR/i18n/${_wl_lang}.sh" 2>/dev/null \
     || source "$CONFIG_DIR/i18n/en.sh" 2>/dev/null || true
 ```
 
-| LANG | Resultado |
+| LANG | Result |
 | --- | --- |
 | `pt_BR.UTF-8`, `pt_PT.UTF-8`, `pt` | `pt.sh` ✅ |
 | `en_US.UTF-8`, `en_AU.UTF-8`, `en_GB.UTF-8`, `en` | `en.sh` ✅ |
-| `de_DE.UTF-8`, `C`, vazio | fallback `en.sh` |
+| `de_DE.UTF-8`, `C`, empty | fallback `en.sh` |
 
-**LANG injected into systemd:** `Environment="LANG=${LANG}"` is written into the `.service` file at `deploy_services` time, so that `fetcher.sh` inherits the correct locale from the user session.
+**LANG injected into systemd:** `Environment="LANG=${LANG}"` is written into the `.service` file at
+`deploy_services` time, so that `fetcher.sh` inherits the correct locale from the user session.
 
-### First-run (antes do --install)
+### First-run (before --install)
 
-Variáveis de botões e títulos têm **fallbacks inline** com `${VAR:=valor}` para funcionar sem i18n files:
+Button and title variables have **inline fallbacks** via `${VAR:=value}` to work without i18n files:
 
 ```bash
 : "${BTN_CLOSE:=Close}"
@@ -120,117 +122,117 @@ Variáveis de botões e títulos têm **fallbacks inline** com `${VAR:=valor}` p
 # etc.
 ```
 
-### Convenções de strings dinâmicas
+### Dynamic string conventions
 
 ```bash
-# Simples:
+# Simple:
 --text="${MSG_CONFIRM_DELETE}"
 
-# Com valor dinâmico (printf):
+# With dynamic value (printf):
 --text="$(printf "${MSG_CONFIRM_DELETE_N}" "$COUNT")"
 notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 ```
 
-### Para adicionar um novo idioma
+### Adding a new language
 
-1. `cp src/i18n/pt.sh src/i18n/XX.sh` → traduzir
-2. Adicionar `##I18N_XX##` placeholder em `install_or_update` dentro de um heredoc em `src/main.sh`
-3. Atualizar `build.sh` com a nova variável `I18N_XX` e o parâmetro extra ao Python
+1. `cp src/i18n/en.sh src/i18n/XX.sh` → translate all values
+2. Add a `##I18N_XX##` placeholder inside a heredoc in `install_or_update` in `src/main.sh`
+3. Update `build.sh` with the new `I18N_XX` variable and the extra Python argument
 4. `./build.sh && ./waylume.sh --install`
 
 ---
 
-## Funcionalidades implementadas
+## Implemented features
 
 ### Menu (src/main.sh)
 
-| Opção | Função |
+| Option | Function |
 | --- | --- |
-| 📂 Pasta da galeria | `set_gallery_dir` |
-| ⏱️ Tempo de atualização | `set_update_interval` |
-| 🌍 Fontes de imagens | `set_image_sources` |
-| 🔑 API Key da NASA | `set_apod_api_key` |
-| 🚀 Instalar/Atualizar | `deploy_services` |
-| 🎲 Mudar imagem AGORA | `fetch_and_apply_wallpaper` |
-| 🧹 Limpar galeria | `clean_gallery` |
-| 🗑️ Remover WayLume | `uninstall` |
+| 📂 Gallery folder | `set_gallery_dir` |
+| ⏱️ Update interval | `set_update_interval` |
+| 🌍 Image sources | `set_image_sources` |
+| 🔑 NASA API Key | `set_apod_api_key` |
+| 🚀 Install/Update | `deploy_services` |
+| 🎲 Change image NOW | `fetch_and_apply_wallpaper` |
+| 🧹 Clear gallery | `clean_gallery` |
+| 🗑️ Remove WayLume | `uninstall` |
 
 ### Fetcher (src/fetcher.sh)
 
-- **3 fontes:** Bing (foto do dia), Unsplash (aleatório), APOD (NASA)
-- **Cache diário:** APOD e Bing baixam apenas 1x/dia; execuções seguintes do timer rotacionam da galeria local (~0.06s, sem rede)
-- **Estado persistido:** `~/.config/waylume/waylume.state` (`APOD_LAST_DATE`, `BING_LAST_DATE`)
-- **Detecção de erro de API:** rate limit / key inválida → notifica usuário + usa galeria local + marca data (sem loop)
-- **Overlay de título:** ImageMagick via `-composite` (JPEG sem canal alpha)
-- **Brand strip (NorthWest):** texto puro no overlay: `WayLume` (DejaVu-Sans-Bold 16pt branco +14+17) + `is.gd/48OrTP` (DejaVu-Sans 13pt #bbbbbb +14+35). Sem assets externos.
-- **APOD:** usa `url` (960px) em vez de `hdurl` (4K) — ~10x mais rápido
+- **3 sources:** Bing (daily photo), Unsplash (random), APOD (NASA)
+- **Daily cache:** APOD and Bing download only once per day; subsequent timer runs rotate from the local gallery (~0.06s, no network)
+- **Persisted state:** `~/.config/waylume/waylume.state` (`APOD_LAST_DATE`, `BING_LAST_DATE`)
+- **API error handling:** rate limit / invalid key → notifies user + uses local gallery + marks date (no loop)
+- **Title overlay:** ImageMagick via `-composite` (JPEG has no alpha channel)
+- **Brand strip (NorthWest):** plain text overlay: `WayLume` (DejaVu-Sans-Bold 16pt white +14+17) + `is.gd/48OrTP` (DejaVu-Sans 13pt #bbbbbb +14+35). No external assets.
+- **APOD:** uses `url` (960px) instead of `hdurl` (4K) — ~10x faster
 
-### Bugs corrigidos (sessões anteriores)
+### Fixed bugs (previous sessions)
 
-- `yad_info/error/question` chamavam a si mesmas recursivamente → segfault
-- `SOURCES` salvo pelo yad com `\n` literal → `case` não casava → fontes nunca baixavam
-- Overlay de título com `-fill '#00000099' -draw "rectangle"` invisível em JPEG (corrigido com composite)
-- `hdurl` do APOD causava demora de 30s+ (corrigido: usar `url`)
+- `yad_info/error/question` called themselves recursively → segfault
+- `SOURCES` saved by yad with literal `\n` → `case` never matched → sources never downloaded
+- Title overlay with `-fill '#00000099' -draw "rectangle"` invisible in JPEG (fixed with composite)
+- APOD `hdurl` caused 30s+ download delay (fixed: use `url`)
 
 ---
 
-## Configuração atual de desenvolvimento
+## Current development configuration
 
 ```bash
 # ~/.config/waylume/waylume.conf
 DEST_DIR="/home/andre/Imagens/WayLume"
 INTERVAL="3min"
 SOURCES="Bing,Unsplash,APOD"
-APOD_API_KEY="KKa2wel7uNRXlBQVQTHScVwPTrYklxe79uRSRmX0"
+APOD_API_KEY="DEMO_KEY
 ```
 
-> ⚠️ A API Key da NASA acima é pessoal. Para publicação/testes em outra máquina, usar `DEMO_KEY` (limite: 30 req/hora).
+> ⚠️ For publishing/testing on another machine, use `DEMO_KEY` (limit: 30 req/hour).
 
 ---
 
-## Agenda da próxima sessão
+## Next session agenda
 
-### 1. Push para o origin
+### 1. Push to origin
 
 ```bash
 git push --force-with-lease origin main
 ```
 
-História foi reescrita (squash de 14 commits → 1). `origin/main` aponta para `31a284e`;
-3 commits locais ainda não estão no GitHub (`b41647e`, `c9d7a7a`, `e7afc24`).
+History was rewritten (squash of 14 commits → 1). `origin/main` points to `31a284e`;
+4 local commits not yet on GitHub (`b41647e`, `c9d7a7a`, `e7afc24`, `fbbd706`).
 
-### 2. Modularização das fontes — quando houver 4ª fonte
+### 2. Source modularisation — when a 4th source is added
 
-**Abordagem:** cada fonte vira um arquivo independente em `src/sources/`.
+**Approach:** each source becomes an independent file under `src/sources/`.
 
 ```text
 src/
   sources/
-    apod.sh       ← testável com: bash src/sources/apod.sh
+    apod.sh       ← testable with: bash src/sources/apod.sh
     bing.sh
     unsplash.sh
-  fetcher.sh      ← orquestrador fino (~50 linhas): pick → source → validate → overlay → apply
+  fetcher.sh      ← thin orchestrator (~50 lines): pick → source → validate → overlay → apply
 ```
 
-**Convenção de interface (a definir):**
+**Interface convention (TBD):**
 
-- Entrada: `$TARGET_PATH` (onde salvar), variáveis do `waylume.conf`
-- Saída: arquivo de imagem gravado + `$IMG_TITLE` + `$MESSAGE`
-- Cache de data: cada fonte gerencia o seu próprio no `waylume.state`
+- Input: `$TARGET_PATH` (where to save), variables from `waylume.conf`
+- Output: image file written + `$IMG_TITLE` + `$MESSAGE`
+- Date cache: each source manages its own entry in `waylume.state`
 
-**Gatilho para implementar:** quando uma 4ª fonte for adicionada.  
-Com apenas 3 fontes, o custo de setup não se justifica ainda.
+**Implementation trigger:** when a 4th source is added.
+With only 3 sources, the setup overhead is not yet justified.
 
 ---
 
-## Decisões de arquitetura já consolidadas
+## Consolidated architecture decisions
 
-| Decisão | Raciocínio |
+| Decision | Rationale |
 | --- | --- |
-| `waylume.sh` é artefato único distribuído | Preserva "Unix Way": `curl .../waylume.sh \| bash` funciona |
-| `src/` contém os fontes de desenvolvimento | Syntax highlighting, shellcheck, testabilidade isolada |
-| `.desktop`, `.service`, `.timer` permanecem como heredocs em `src/main.sh` | Dependem de variáveis interpoladas em tempo de deploy (`$INTERVAL`, `$FETCHER_SCRIPT`) |
-| Não fragmentar `src/main.sh` por menu/funcionalidade | Acoplamento total de estado global; sem testabilidade isolada real |
-| i18n via arquivos `.sh` (Opção B), não gettext | Sem dependências externas; compatível com arquivo único distribuído |
-| Brand strip texto puro (sem assets) | QR codes ficam ilegíveis comprimidos em JPEG; ícone SVG é dissonante no overlay |
-| APOD usa `url` (960px) | `hdurl` (4K) causava 30s+ de download sem ganho visual perceptível |
+| `waylume.sh` is a single distributed artifact | Preserves "Unix Way": `curl .../waylume.sh \| bash` works |
+| `src/` holds development sources | Syntax highlighting, shellcheck, standalone testability |
+| `.desktop`, `.service`, `.timer` remain as heredocs in `src/main.sh` | Depend on variables interpolated at deploy time (`$INTERVAL`, `$FETCHER_SCRIPT`) |
+| Do not split `src/main.sh` by menu/feature | Full global-state coupling; no real isolated testability |
+| i18n via `.sh` files (Option B), not gettext | No external dependencies; compatible with single distributed file |
+| Plain-text brand strip (no assets) | QR codes become illegible compressed in JPEG; SVG icon looks out of place in the overlay |
+| APOD uses `url` (960px) | `hdurl` (4K) caused 30s+ downloads with no perceptible visual gain |
