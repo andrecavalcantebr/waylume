@@ -107,7 +107,41 @@ bash src/fetcher.sh
 ./build.sh && ./waylume.sh --install
 ```
 
-`build.sh` embeds `src/fetcher.sh` and `src/waylume.svg` into their respective heredocs in `src/main.sh`, producing the self-contained `waylume.sh`. Requires Python 3 (present on any modern distro).
+``build.sh`` embeds `src/fetcher.sh`, `src/waylume.svg`, `src/i18n/pt.sh` and `src/i18n/en.sh` into their respective placeholders in `src/main.sh`, producing the self-contained `waylume.sh`. Requires Python 3 (present on any modern distro).
+
+| Placeholder in `src/main.sh` | Replaced by |
+|---|---|
+| `##FETCHER_CONTENT##` | `src/fetcher.sh` |
+| `##ICON_CONTENT##` | `src/waylume.svg` |
+| `##I18N_PT##` | `src/i18n/pt.sh` |
+| `##I18N_EN##` | `src/i18n/en.sh` |
+
+The `##I18N_*##` placeholders live inside heredocs in `install_or_update`. When `waylume.sh --install` runs, those heredocs are written to:
+
+```
+~/.config/waylume/i18n/
+  pt.sh
+  en.sh
+```
+
+At runtime, `main.sh` and `fetcher.sh` detect the language from `$LANG` and source the matching bundle. Fallback: `en`.
+
+### Adding a new language
+
+```bash
+# 1. Copy an existing bundle and translate
+cp src/i18n/en.sh src/i18n/de.sh
+nano src/i18n/de.sh
+
+# 2. Add the heredoc in install_or_update (src/main.sh)
+# cat << 'WL_I18N_DE' > "$CONFIG_DIR/i18n/de.sh"
+# ##I18N_DE##
+# WL_I18N_DE
+
+# 3. Update build.sh with the new I18N_DE variable
+# 4. Rebuild and reinstall
+./build.sh && ./waylume.sh --install
+```
 
 ## 📄 License
 
