@@ -1,14 +1,26 @@
 #!/bin/bash
 # WayLume Fetcher - runs via systemd or manually
 
-# Export environment needed for gsettings/notify-send when running via systemd
-# Use :- to not override values already set in a graphical session
+# ============================================================
+# ENVIRONMENT & CONFIG
+# ============================================================
+
+# Export environment needed for gsettings/notify-send when running via systemd.
+# Use :- to not override values already set in a graphical session.
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export DISPLAY="${DISPLAY:-:0}"
 
 source "$HOME/.config/waylume/waylume.conf"
 mkdir -p "$DEST_DIR"
+
+# ── i18n: detect language and load strings ────────────────────────────────────
+# LANG is injected by the systemd service Environment= directive (set at deploy time)
+_wl_lang="${LANG:-${LANGUAGE:-en}}"
+_wl_lang="${_wl_lang%%.*}"; _wl_lang="${_wl_lang%%_*}"; _wl_lang="${_wl_lang,,}"
+source "$HOME/.config/waylume/i18n/${_wl_lang}.sh" 2>/dev/null \
+    || source "$HOME/.config/waylume/i18n/en.sh" 2>/dev/null || true
+unset _wl_lang
 
 STATE_FILE="$HOME/.config/waylume/waylume.state"
 TODAY=$(date +%Y-%m-%d)
@@ -18,145 +30,209 @@ APOD_LAST_DATE=""
 BING_LAST_DATE=""
 [ -f "$STATE_FILE" ] && source "$STATE_FILE" 2>/dev/null
 
-# Apply a local random wallpaper from the gallery (no download)
+# Shared output variables set by each fetch_* function
+IMG_TITLE=""
+MESSAGE=""
+
+# ============================================================
+# UTILITIES
+# ============================================================
+
+# Rotate a random image from the local gallery (no download).
+# Sets TARGET_PATH and MESSAGE; exits if gallery is empty.
 apply_random_local() {
-    local SOURCE_LABEL="$1"
+    local LABEL="$1"
     TARGET_PATH=$(find "$DEST_DIR" -type f \( -iname "*.jpg" -o -iname "*.png" \) | shuf -n 1)
     if [ -z "$TARGET_PATH" ]; then
-        notify-send "WayLume" "Nenhuma imagem encontrada na galeria."
-        exit 1
+        notify-send "WayLume" "${MSG_FETCH_NO_IMAGES:-Nenhuma imagem encontrada na galeria.}"
+        exit 0   # handled — timer will retry later
     fi
-    MESSAGE="🔄 Galeria local ($SOURCE_LABEL já baixado hoje)"
+    MESSAGE="$(printf "${MSG_FETCH_LOCAL:-🔄 Galeria local (%s já baixado hoje)}" "$LABEL")"
 }
 
-# Mode: pick a random local image from the gallery
-if [ "$1" == "--random" ]; then
-    apply_random_local "manual"
-
-# Mode: download a new image from the configured sources
-else
-    IFS=',' read -r -a SOURCE_ARRAY <<< "$SOURCES"
-    # Trim any stray whitespace/newlines from each source name
-    for i in "${!SOURCE_ARRAY[@]}"; do
-        SOURCE_ARRAY[$i]=$(echo "${SOURCE_ARRAY[$i]}" | tr -d '[:space:]')
-    done
-    SELECTED_SOURCE="${SOURCE_ARRAY[$RANDOM % ${#SOURCE_ARRAY[@]}]}"
-    FILE_NAME="waylume_$(date +%Y%m%d_%H%M%S).jpg"
-    TARGET_PATH="$DEST_DIR/$FILE_NAME"
-
-    IMG_TITLE=""
-
-    case "$SELECTED_SOURCE" in
-        "Bing")
-            # Bing has one image per day — rotate locally if already downloaded today
-            if [ "$BING_LAST_DATE" = "$TODAY" ]; then
-                apply_random_local "Bing"
-            else
-                BING_JSON=$(curl -sL "https://bing.biturl.top/?resolution=1920&format=js&index=0&mkt=pt-BR")
-                BING_URL=$(echo "$BING_JSON" | grep -oP '"url"\s*:\s*"\K[^"]+' 2>/dev/null)
-                IMG_TITLE=$(echo "$BING_JSON" | grep -oP '"copyright"\s*:\s*"\K[^"]+' 2>/dev/null)
-                if [ -n "$BING_URL" ]; then
-                    curl -sL "$BING_URL" -o "$TARGET_PATH"
-                    BING_LAST_DATE="$TODAY"
-                fi
-                MESSAGE="Novo wallpaper baixado via Bing"
-            fi
-            ;;
-        "Unsplash")
-            # Unsplash (picsum) returns a random image on every request — always download
-            curl -sL "https://picsum.photos/1920/1080.jpg" -o "$TARGET_PATH"
-            IMG_TITLE="Unsplash / picsum.photos"
-            MESSAGE="Novo wallpaper baixado via Unsplash"
-            ;;
-        "APOD")
-            # APOD has one image per day — rotate locally if already downloaded today
-            if [ "$APOD_LAST_DATE" = "$TODAY" ]; then
-                apply_random_local "APOD"
-            else
-                APOD_URL=""
-                for DAYS_AGO in 0 1 2 3 4 5 6 7; do
-                    APOD_DATE=$(date -d "-${DAYS_AGO} days" +%Y-%m-%d)
-                    APOD_JSON=$(curl -sL "https://api.nasa.gov/planetary/apod?api_key=${APOD_API_KEY}&date=${APOD_DATE}")
-                    # Detect API errors (rate limit, invalid key, etc.) early to avoid
-                    # burning remaining quota on the 8-day retry loop.
-                    if echo "$APOD_JSON" | grep -q '"error"'; then
-                        ERR_MSG=$(echo "$APOD_JSON" | grep -oP '"message"\s*:\s*"\K[^"]+' 2>/dev/null)
-                        notify-send "WayLume ⚠️" "APOD API: $ERR_MSG\nUsando galeria local.\nDica: registre uma API key gratuita em api.nasa.gov"
-                        apply_random_local "APOD"
-                        # Mark today as handled so we don't hammer the API on every timer tick.
-                        # It will retry tomorrow when the date changes.
-                        APOD_LAST_DATE="$TODAY"
-                        break
-                    fi
-                    MEDIA_TYPE=$(echo "$APOD_JSON" | grep -oP '"media_type"\s*:\s*"\K[^"]+' 2>/dev/null)
-                    if [ "$MEDIA_TYPE" = "image" ]; then
-                        # Use regular url (960px) — much faster than hdurl (4K)
-                        APOD_URL=$(echo "$APOD_JSON" | grep -oP '"url"\s*:\s*"\K[^"]+' 2>/dev/null)
-                        if [ -n "$APOD_URL" ]; then
-                            IMG_TITLE=$(echo "$APOD_JSON" | grep -oP '"title"\s*:\s*"\K[^"]+' 2>/dev/null)
-                            break
-                        fi
-                    fi
-                done
-                if [ -n "$APOD_URL" ]; then
-                    curl -sL "$APOD_URL" -o "$TARGET_PATH"
-                    APOD_LAST_DATE="$TODAY"
-                fi
-                MESSAGE="Novo wallpaper baixado via APOD"
-            fi
-            ;;
-    esac
-
-    # Persist updated download dates
+# Persist updated download dates to state file.
+save_state() {
     {
         echo "APOD_LAST_DATE=\"$APOD_LAST_DATE\""
         echo "BING_LAST_DATE=\"$BING_LAST_DATE\""
     } > "$STATE_FILE"
-fi
+}
 
-# Validate the file is actually an image before applying
-if [ -f "$TARGET_PATH" ]; then
-    MIME=$(file --mime-type -b "$TARGET_PATH")
-    if [[ "$MIME" != image/* ]]; then
-        notify-send "WayLume" "⚠️ Download inválido ignorado ($MIME). Tente novamente."
-        rm -f "$TARGET_PATH"
-        exit 1
+# ============================================================
+# SOURCE FUNCTIONS
+# Each function receives TARGET_PATH as $1 and is responsible
+# for populating IMG_TITLE and MESSAGE (global), and writing
+# the image file to TARGET_PATH on success.
+# ============================================================
+
+fetch_bing() {
+    local TARGET="$1"
+
+    # Bing has one image per day — rotate from gallery if already downloaded today.
+    if [ "$BING_LAST_DATE" = "$TODAY" ]; then
+        apply_random_local "Bing"
+        return
     fi
-fi
 
-# Overlay title bar on the image using ImageMagick (optional — skipped if not installed)
-if [ -n "$IMG_TITLE" ] && [ -f "$TARGET_PATH" ] && command -v convert &>/dev/null; then
-    DISPLAY_TITLE="${IMG_TITLE:0:120}"
-    W=$(identify -format "%w" "$TARGET_PATH" 2>/dev/null)
-    H=$(identify -format "%h" "$TARGET_PATH" 2>/dev/null)
-    if [ -n "$W" ] && [ -n "$H" ]; then
-        BAR=52
-        # Portrait images get cropped at the bottom by GNOME zoom mode.
-        # Place the title bar at the TOP for portrait images so it stays visible.
-        if [ "$H" -gt "$W" ]; then
-            GRAVITY_BAR="North"
-            GRAVITY_TXT="NorthWest"
-        else
-            GRAVITY_BAR="South"
-            GRAVITY_TXT="SouthWest"
+    local JSON URL
+    JSON=$(curl -sL "https://bing.biturl.top/?resolution=1920&format=js&index=0&mkt=pt-BR")
+    URL=$(echo "$JSON"       | grep -oP '"url"\s*:\s*"\K[^"]+' 2>/dev/null)
+    IMG_TITLE=$(echo "$JSON" | grep -oP '"copyright"\s*:\s*"\K[^"]+' 2>/dev/null)
+
+    if [ -n "$URL" ]; then
+        curl -sL "$URL" -o "$TARGET"
+        BING_LAST_DATE="$TODAY"
+    fi
+    MESSAGE="${MSG_FETCH_SOURCE_BING:-Novo wallpaper baixado via Bing}"
+}
+
+fetch_unsplash() {
+    local TARGET="$1"
+
+    # Unsplash (picsum) returns a different random image on every request — always download.
+    curl -sL "https://picsum.photos/1920/1080.jpg" -o "$TARGET"
+    IMG_TITLE="Unsplash / picsum.photos"
+    MESSAGE="${MSG_FETCH_SOURCE_UNSPLASH:-Novo wallpaper baixado via Unsplash}"
+}
+
+fetch_apod() {
+    local TARGET="$1"
+
+    # APOD has one image per day — rotate from gallery if already downloaded today.
+    if [ "$APOD_LAST_DATE" = "$TODAY" ]; then
+        apply_random_local "APOD"
+        return
+    fi
+
+    local APOD_URL="" JSON MEDIA_TYPE ERR_MSG APOD_DATE
+
+    # Try up to 8 days back in case today's APOD is a video or not yet published.
+    for DAYS_AGO in 0 1 2 3 4 5 6 7; do
+        APOD_DATE=$(date -d "-${DAYS_AGO} days" +%Y-%m-%d)
+        JSON=$(curl -sL "https://api.nasa.gov/planetary/apod?api_key=${APOD_API_KEY}&date=${APOD_DATE}")
+
+        # Detect API errors (rate limit, invalid key) early to avoid burning quota.
+        if echo "$JSON" | grep -q '"error"'; then
+            ERR_MSG=$(echo "$JSON" | grep -oP '"message"\s*:\s*"\K[^"]+' 2>/dev/null)
+            notify-send "WayLume ⚠️" "$(printf "${MSG_FETCH_APOD_ERROR:-APOD API: %s\nUsando galeria local.\nDica: registre uma API key gratuita em api.nasa.gov}" "$ERR_MSG")"
+            apply_random_local "APOD"
+            # Mark today so the timer doesn't hammer the API again until tomorrow.
+            APOD_LAST_DATE="$TODAY"
+            return
         fi
-        # Create a semi-transparent bar as a separate image and composite it.
-        # This is the reliable method for JPEGs that have no native alpha channel.
-        convert "$TARGET_PATH" \
-            \( -size "${W}x${BAR}" xc:"rgba(0,0,0,0.65)" \) \
-            -gravity "$GRAVITY_BAR" -composite \
-            -gravity "$GRAVITY_TXT" \
-            -fill white \
-            -font DejaVu-Sans \
-            -pointsize 24 \
-            -annotate +20+14 "  ${DISPLAY_TITLE}  " \
-            "$TARGET_PATH" 2>/dev/null
+
+        MEDIA_TYPE=$(echo "$JSON" | grep -oP '"media_type"\s*:\s*"\K[^"]+' 2>/dev/null)
+        if [ "$MEDIA_TYPE" = "image" ]; then
+            # Use regular url (~960px) — much faster than hdurl (4K).
+            APOD_URL=$(echo "$JSON" | grep -oP '"url"\s*:\s*"\K[^"]+' 2>/dev/null)
+            if [ -n "$APOD_URL" ]; then
+                IMG_TITLE=$(echo "$JSON" | grep -oP '"title"\s*:\s*"\K[^"]+' 2>/dev/null)
+                break
+            fi
+        fi
+    done
+
+    if [ -n "$APOD_URL" ]; then
+        curl -sL "$APOD_URL" -o "$TARGET"
+        APOD_LAST_DATE="$TODAY"
     fi
+    MESSAGE="${MSG_FETCH_SOURCE_APOD:-Novo wallpaper baixado via APOD}"
+}
+
+# ============================================================
+# IMAGE PIPELINE
+# ============================================================
+
+# Reject files that are not valid images (e.g. HTML error pages from failed downloads).
+validate_image() {
+    local TARGET="$1"
+    [ -f "$TARGET" ] || return
+    local MIME
+    MIME=$(file --mime-type -b "$TARGET")
+    if [[ "$MIME" != image/* ]]; then
+        notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME:-⚠️ Download inválido ignorado (%s). Tente novamente.}" "$MIME")"
+        rm -f "$TARGET"
+        exit 0   # handled — bad download removed, timer will retry later
+    fi
+}
+
+# Resize to exact screen resolution (fill + center crop) and optionally
+# overlay a semi-transparent title bar at the top-right corner.
+# Single ImageMagick pass — avoids double JPEG re-encoding.
+process_image() {
+    local TARGET="$1"
+    [ -f "$TARGET" ] && command -v convert &>/dev/null || return
+
+    local SCREEN_RES SCREEN_W SCREEN_H
+    SCREEN_RES=$(xrandr --current 2>/dev/null \
+        | grep ' connected' \
+        | grep -oP '\d+x\d+\+\d+\+\d+' \
+        | head -1 \
+        | cut -d'+' -f1)
+    SCREEN_W=${SCREEN_RES%x*}
+    SCREEN_H=${SCREEN_RES#*x}
+    [ -n "$SCREEN_W" ] && [ -n "$SCREEN_H" ] || return
+
+    local BAR=52
+
+    if [ -n "$IMG_TITLE" ]; then
+        local DISPLAY_TITLE="${IMG_TITLE:0:120}"
+        # Resize → crop → composite bar → título (NE) → brand text (NW): um pass só.
+        convert "$TARGET" \
+            -resize "${SCREEN_W}x${SCREEN_H}^" \
+            -gravity Center \
+            -extent "${SCREEN_W}x${SCREEN_H}" \
+            \( -size "${SCREEN_W}x${BAR}" xc:"rgba(0,0,0,0.65)" \) \
+            -gravity North -composite \
+            -font DejaVu-Sans-Bold -pointsize 16 \
+            -fill white -gravity NorthWest -annotate +14+17 "WayLume" \
+            -font DejaVu-Sans -pointsize 13 \
+            -fill "#bbbbbb" -gravity NorthWest -annotate +14+35 "is.gd/48OrTP" \
+            -font DejaVu-Sans -pointsize 24 \
+            -fill white -gravity NorthEast -annotate +20+14 "  ${DISPLAY_TITLE}  " \
+            "$TARGET" 2>/dev/null
+    else
+        # No title: just resize + center crop.
+        convert "$TARGET" \
+            -resize "${SCREEN_W}x${SCREEN_H}^" \
+            -gravity Center \
+            -extent "${SCREEN_W}x${SCREEN_H}" \
+            "$TARGET" 2>/dev/null
+    fi
+}
+
+# Set the wallpaper on GNOME (light and dark schemes) and notify the user.
+apply_wallpaper() {
+    local TARGET="$1"
+    [ -f "$TARGET" ] || return
+    gsettings set org.gnome.desktop.background picture-uri      "file://$TARGET"
+    gsettings set org.gnome.desktop.background picture-uri-dark "file://$TARGET"
+    notify-send "WayLume" "$MESSAGE"
+}
+
+# ============================================================
+# MAIN
+# ============================================================
+
+if [ "$1" == "--random" ]; then
+    # Mode: rotate a random image already in the local gallery.
+    apply_random_local "manual"
+else
+    # Mode: download a new image from one of the configured sources.
+    IFS=',' read -r -a SOURCE_ARRAY <<< "$SOURCES"
+    # Trim any stray whitespace/newlines from each source name.
+    for i in "${!SOURCE_ARRAY[@]}"; do
+        SOURCE_ARRAY[$i]=$(echo "${SOURCE_ARRAY[$i]}" | tr -d '[:space:]')
+    done
+    SELECTED_SOURCE="${SOURCE_ARRAY[$RANDOM % ${#SOURCE_ARRAY[@]}]}"
+    TARGET_PATH="$DEST_DIR/waylume_$(date +%Y%m%d_%H%M%S).jpg"
+
+    # Dispatch to the matching fetch function (Bing→fetch_bing, etc.).
+    "fetch_${SELECTED_SOURCE,,}" "$TARGET_PATH"
 fi
 
-# Apply wallpaper on GNOME (light and dark modes)
-if [ -f "$TARGET_PATH" ]; then
-    gsettings set org.gnome.desktop.background picture-uri      "file://$TARGET_PATH"
-    gsettings set org.gnome.desktop.background picture-uri-dark "file://$TARGET_PATH"
-    notify-send "WayLume" "$MESSAGE"
-fi
+save_state
+
+validate_image  "$TARGET_PATH"
+process_image   "$TARGET_PATH"
+apply_wallpaper "$TARGET_PATH"

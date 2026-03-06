@@ -20,6 +20,35 @@ INTERVAL="1h"
 SOURCES="Unsplash"
 APOD_API_KEY="DEMO_KEY"
 
+# ── i18n: detect language and load strings ────────────────────────────────────
+# Handles: pt_BR.UTF-8, pt_PT, pt, en_US.UTF-8, en_AU, en_GB, en → base code
+WL_LANG="${LANG:-${LANGUAGE:-en}}"
+WL_LANG="${WL_LANG%%.*}"   # strip .UTF-8
+WL_LANG="${WL_LANG%%_*}"   # strip _BR, _US, _AU …
+WL_LANG="${WL_LANG,,}"     # lowercase
+source "$CONFIG_DIR/i18n/${WL_LANG}.sh" 2>/dev/null \
+    || source "$CONFIG_DIR/i18n/en.sh" 2>/dev/null || true
+# Normalize bare LANG codes so GTK/glibc don't warn:
+#   en       → en_US.UTF-8   (bare lang code, expand to canonical locale)
+#   en_US    → en_US.UTF-8   (has region, just add encoding)
+#   pt       → pt_BR.UTF-8
+#   pt_BR    → pt_BR.UTF-8
+#   xx_YY.UTF-8 → unchanged
+if [[ "${LANG:-}" != *.* ]]; then
+    case "${LANG}" in
+        en) export LANG="en_US.UTF-8" ;;
+        pt) export LANG="pt_BR.UTF-8" ;;
+        *)  export LANG="${LANG}.UTF-8" ;;
+    esac
+fi
+# Fallback defaults when i18n files not yet installed (first --install run)
+: "${BTN_CLOSE:=Close}" "${BTN_NO:=No}" "${BTN_YES:=Yes}" "${BTN_OK:=OK}"
+: "${TITLE_MENU:=WayLume - Menu}" "${TITLE_INTERVAL:=Update Interval}"
+: "${TITLE_SOURCES:=Image Sources}" "${TITLE_APOD_KEY:=WayLume - NASA API Key}"
+: "${TITLE_GALLERY_PICK:=Choose Gallery Folder}"
+: "${TITLE_UNINSTALL_CONFIRM:=Warning}" "${TITLE_GALLERY_CLEAN:=WayLume - Clean Gallery}"
+: "${TITLE_UPDATE_PROMPT:=WayLume Update}" "${TITLE_INSTALL_PROMPT:=WayLume Install}"
+
 # ====================================================
 # FUNCTIONS
 # ====================================================
@@ -33,10 +62,10 @@ export GDK_BACKEND=x11
 # --class sets WM_CLASS so GNOME Shell matches the window to waylume.desktop
 YAD_BASE=(--class=WayLume --window-icon="$ICON_DIR/waylume.svg" --borders=10)
 
-# Button label presets
-YAD_BTN_OK=(--button="Fechar:0")
-YAD_BTN_YN=(--button="Não:1" --button="Sim:0")
-YAD_BTN_OKC=(--button="Fechar:1" --button="OK:0")
+# Button label presets (populated from i18n file loaded above)
+YAD_BTN_OK=(--button="${BTN_CLOSE}:0")
+YAD_BTN_YN=(--button="${BTN_NO}:1" --button="${BTN_YES}:0")
+YAD_BTN_OKC=(--button="${BTN_CLOSE}:1" --button="${BTN_OK}:0")
 
 # Wrappers so button labels are consistent without repeating them everywhere
 yad_info()     { yad "${YAD_BASE[@]}" --info     "${YAD_BTN_OK[@]}"  "$@"; }
@@ -71,8 +100,8 @@ check_dependencies() {
 
     [ ${#MISSING[@]} -eq 0 ] && return 0
 
-    echo "⚠️ O WayLume precisa de alguns pacotes para funcionar: ${MISSING[*]}"
-    echo "Solicitando permissão para instalar..."
+    echo "${MSG_DEPS_NEEDED:-⚠️ O WayLume precisa de alguns pacotes para funcionar}: ${MISSING[*]}"
+    echo "${MSG_DEPS_ASKING:-Solicitando permissão para instalar...}"
 
     # Translate command names to the correct package name per package manager
     pkg_name() {
@@ -90,7 +119,7 @@ check_dependencies() {
     local PACKAGES=()
     if command -v apt-get &>/dev/null; then
         for cmd in "${MISSING[@]}"; do PACKAGES+=("$(pkg_name "$cmd" apt)"); done
-        sudo apt-get update 2>/dev/null || echo "⚠️  apt update falhou (rede?), tentando com índices locais..."
+        sudo apt-get update 2>/dev/null || echo "${MSG_DEPS_APT_FAIL:-⚠️  apt update falhou (rede?), tentando com índices locais...}"
         sudo apt-get install -y "${PACKAGES[@]}" || exit 1
     elif command -v dnf &>/dev/null; then
         for cmd in "${MISSING[@]}"; do PACKAGES+=("$(pkg_name "$cmd" dnf)"); done
@@ -99,12 +128,12 @@ check_dependencies() {
         for cmd in "${MISSING[@]}"; do PACKAGES+=("$(pkg_name "$cmd" pacman)"); done
         sudo pacman -S --noconfirm "${PACKAGES[@]}" || exit 1
     else
-        echo "❌ Gerenciador de pacotes não reconhecido."
-        echo "Por favor, instale manualmente: ${MISSING[*]}"
+        echo "${MSG_DEPS_NO_PM:-❌ Gerenciador de pacotes não reconhecido.}"
+        echo "${MSG_DEPS_MANUAL:-Por favor, instale manualmente}: ${MISSING[*]}"
         exit 1
     fi
 
-    echo "✅ Dependências instaladas com sucesso!"
+    echo "${MSG_DEPS_OK:-✅ Dependências instaladas com sucesso!}"
 }
 
 # Persist current config to disk
@@ -144,6 +173,7 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+Environment="LANG=${LANG}"
 ExecStart=$FETCHER_SCRIPT
 EOF
 
@@ -162,16 +192,16 @@ WantedBy=timers.target
 EOF
 
     # Show progress while running systemd commands
-    run_with_progress "Aplicando configurações e reiniciando timer..." \
+    run_with_progress "${MSG_DEPLOY_PROGRESS:-Aplicando configurações e reiniciando timer...}" \
         bash -c '
             systemctl --user daemon-reload
             systemctl --user disable waylume.timer 2>/dev/null
             systemctl --user enable --now waylume.timer
-            systemctl --user start waylume.service
+            systemctl --user start waylume.service || true
         '
 
     yad_info --title="WayLume" \
-        --text="Scripts gerados e Timer ativado!\nO sistema rodará a cada $INTERVAL."
+        --text="$(printf "${MSG_DEPLOY_DONE:-Scripts gerados e Timer ativado!\nO sistema rodará a cada %s.}" "$INTERVAL")"
 }
 
 # Install or update WayLume into ~/.local
@@ -189,9 +219,21 @@ install_or_update() {
 ##ICON_CONTENT##
 SVGEOF
 
-    # Create default config only on fresh installs
+    # Write i18n string files (plain text, safe to customize)
+    mkdir -p "$CONFIG_DIR/i18n"
+    cat << 'WL_I18N_PT' > "$CONFIG_DIR/i18n/pt.sh"
+##I18N_PT##
+WL_I18N_PT
+    cat << 'WL_I18N_EN' > "$CONFIG_DIR/i18n/en.sh"
+##I18N_EN##
+WL_I18N_EN
+
+    # Ensure config exists and contains all current fields (idempotent)
     if [ ! -f "$CONF_FILE" ]; then
         save_config
+    else
+        load_config   # read existing values (preserve DEST_DIR, INTERVAL, etc.)
+        save_config   # re-write so new fields (e.g. WAYLUME_LANG) are added
     fi
 
     # Write the .desktop launcher
@@ -215,17 +257,17 @@ EOF
         load_config
         deploy_services
         yad_info --title="WayLume" \
-            --text="Atualizado com sucesso!\nScripts e timer foram atualizados.\nSuas configurações foram preservadas."
+            --text="${MSG_UPDATE_DONE:-Atualizado com sucesso!\nScripts e timer foram atualizados.\nSuas configurações foram preservadas.}"
     else
         yad_info --title="WayLume" \
-            --text="Instalado com sucesso!\nAbra o WayLume pelo menu de aplicativos do seu sistema."
+            --text="${MSG_INSTALL_DONE:-Instalado com sucesso!\nAbra o WayLume pelo menu de aplicativos do seu sistema.}"
     fi
 }
 
 # Remove all WayLume files from the system (keeps the photo gallery)
 uninstall() {
-    yad_question --title="Aviso" \
-        --text="Deseja realmente remover o WayLume do sistema?\nSua galeria de fotos NÃO será apagada."
+    yad_question --title="${TITLE_UNINSTALL_CONFIRM}" \
+        --text="${MSG_UNINSTALL_CONFIRM:-Deseja realmente remover o WayLume do sistema?\nSua galeria de fotos NÃO será apagada.}"
     if [ $? -eq 0 ]; then
         systemctl --user disable --now waylume.timer 2>/dev/null
         rm -f "$SYSTEMD_DIR"/waylume.*
@@ -236,7 +278,7 @@ uninstall() {
         systemctl --user daemon-reload
         gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" &>/dev/null
         update-desktop-database "$HOME/.local/share/applications" &>/dev/null
-        yad_info --text="WayLume desinstalado completamente."
+        yad_info --text="${MSG_UNINSTALL_DONE:-WayLume desinstalado completamente.}"
         exit 0
     fi
 }
@@ -245,12 +287,12 @@ uninstall() {
 set_gallery_dir() {
     local NEW_DIR
     NEW_DIR=$(yad "${YAD_BASE[@]}" --file --directory \
-        --title="Escolha a pasta da Galeria" --filename="$DEST_DIR/" \
+        --title="${TITLE_GALLERY_PICK}" --filename="$DEST_DIR/" \
         "${YAD_BTN_OKC[@]}")
     if [ -n "$NEW_DIR" ]; then
         DEST_DIR="$NEW_DIR"
         save_config
-        yad_info --text="Galeria alterada para:\n$DEST_DIR\n\nLembre-se de clicar em 'Instalar/Atualizar Scripts' para aplicar."
+        yad_info --text="$(printf "${MSG_GALLERY_CHANGED:-Galeria alterada para:\n%s\n\nLembre-se de clicar em 'Instalar/Atualizar Scripts' para aplicar.}" "$DEST_DIR")"
     fi
 }
 
@@ -268,11 +310,11 @@ set_update_interval() {
     [ "$CUR_UNIT" = "min" ] && MIN_SEL=TRUE || H_SEL=TRUE
 
     local UNIT
-    UNIT=$(yad "${YAD_BASE[@]}" --list --radiolist --title="Tempo de Atualização" \
-        --text="Unidade de tempo:" \
-        --column="" --column="Unidade" --column="Valor" \
-        $MIN_SEL "Minutos" "min" \
-        $H_SEL   "Horas"   "h"  \
+    UNIT=$(yad "${YAD_BASE[@]}" --list --radiolist --title="${TITLE_INTERVAL}" \
+        --text="${MSG_INTERVAL_UNIT:-Unidade de tempo:}" \
+        --column="" --column="${COL_INTERVAL_UNIT:-Unidade}" --column="${COL_INTERVAL_VALUE:-Valor}" \
+        $MIN_SEL "${ITEM_INTERVAL_MIN:-Minutos}" "min" \
+        $H_SEL   "${ITEM_INTERVAL_H:-Horas}"    "h"  \
         --print-column=3 --hide-column=3 \
         --width=320 --height=280 \
         "${YAD_BTN_OKC[@]}")
@@ -281,12 +323,12 @@ set_update_interval() {
     [ -z "$UNIT" ] && return
 
     # Step 2: choose value with a slider (1–60)
-    local LABEL="minutos"
-    [ "$UNIT" = "h" ] && LABEL="horas"
+    local LABEL="${LABEL_MINUTES:-minutos}"
+    [ "$UNIT" = "h" ] && LABEL="${LABEL_HOURS:-horas}"
 
     local VALUE
-    VALUE=$(yad "${YAD_BASE[@]}" --scale --title="Tempo de Atualização" \
-        --text="Intervalo em $LABEL:" \
+    VALUE=$(yad "${YAD_BASE[@]}" --scale --title="${TITLE_INTERVAL}" \
+        --text="$(printf "${MSG_INTERVAL_SCALE:-Intervalo em %s:}" "$LABEL")" \
         --min-value=1 --max-value=60 --step=1 \
         --value="$CUR_VALUE" \
         "${YAD_BTN_OKC[@]}")
@@ -295,7 +337,7 @@ set_update_interval() {
 
     INTERVAL="${VALUE}${UNIT}"
     save_config
-    yad_info --text="Tempo alterado para $INTERVAL.\nLembre-se de clicar em 'Instalar/Atualizar Scripts' para aplicar."
+    yad_info --text="$(printf "${MSG_INTERVAL_CHANGED:-Tempo alterado para %s.\nLembre-se de clicar em 'Instalar/Atualizar Scripts' para aplicar.}" "$INTERVAL")"
 }
 
 # GUI: choose which image sources to use
@@ -306,9 +348,9 @@ set_image_sources() {
     [[ "$SOURCES" == *"APOD"* ]]     && APOD=TRUE
 
     local NEW_SOURCES
-    NEW_SOURCES=$(yad "${YAD_BASE[@]}" --list --checklist --title="Fontes de Imagens" \
-        --text="Escolha de onde baixar as imagens novas:" \
-        --column="" --column="Fonte" \
+    NEW_SOURCES=$(yad "${YAD_BASE[@]}" --list --checklist --title="${TITLE_SOURCES}" \
+        --text="${MSG_SOURCES_PICK:-Escolha de onde baixar as imagens novas:}" \
+        --column="" --column="${COL_SOURCES_NAME:-Fonte}" \
         $BING "Bing" $UNSPLASH "Unsplash" $APOD "APOD" \
         --print-column=2 --separator="," \
         --width=280 --height=220 --no-headers \
@@ -319,7 +361,7 @@ set_image_sources() {
     if [ -n "$NEW_SOURCES" ]; then
         SOURCES="$NEW_SOURCES"
         save_config
-        yad_info --text="Fontes alteradas.\nLembre-se de clicar em 'Instalar/Atualizar Scripts' para aplicar."
+        yad_info --text="${MSG_SOURCES_CHANGED:-Fontes alteradas.\nLembre-se de clicar em 'Instalar/Atualizar Scripts' para aplicar.}"
     fi
 }
 
@@ -327,15 +369,15 @@ set_image_sources() {
 set_apod_api_key() {
     local KEY_HINT
     if [ "$APOD_API_KEY" = "DEMO_KEY" ]; then
-        KEY_HINT="(usando DEMO_KEY — gere a sua em api.nasa.gov, é grátis!)"
+        KEY_HINT="${MSG_APOD_KEY_DEMO:-(usando DEMO_KEY — gere a sua em api.nasa.gov, é grátis!)}"
     else
-        KEY_HINT="(chave configurada: ${APOD_API_KEY:0:6}...)"
+        KEY_HINT="$(printf "${MSG_APOD_KEY_SET:-(chave configurada: %s...)}" "${APOD_API_KEY:0:6}")"
     fi
 
     local NEW_KEY
     NEW_KEY=$(yad "${YAD_BASE[@]}" --entry \
-        --title="WayLume - NASA API Key" \
-        --text="Informe sua API Key da NASA APOD:\n$KEY_HINT" \
+        --title="${TITLE_APOD_KEY}" \
+        --text="$(printf "${MSG_APOD_KEY_PROMPT:-Informe sua API Key da NASA APOD:\n%s}" "$KEY_HINT")" \
         --entry-text="$APOD_API_KEY" \
         --width=480 \
         "${YAD_BTN_OKC[@]}")
@@ -345,7 +387,7 @@ set_apod_api_key() {
     APOD_API_KEY="$NEW_KEY"
     save_config
     yad_info --title="WayLume" \
-        --text="API Key salva!\nLembre-se de clicar em 'Instalar/Atualizar Scripts' para aplicar."
+        --text="${MSG_APOD_KEY_SAVED:-API Key salva!\nLembre-se de clicar em 'Instalar/Atualizar Scripts' para aplicar.}"
 }
 
 # Remove non-image files from the gallery
@@ -357,15 +399,15 @@ clean_gallery() {
     done < <(find "$DEST_DIR" -type f \( -iname "*.jpg" -o -iname "*.png" -o -iname "*.webp" \) -print0)
 
     if [ ${#INVALID[@]} -eq 0 ]; then
-        yad_info --title="WayLume" --text="Nenhum arquivo inválido encontrado na galeria. ✅"
+        yad_info --title="WayLume" --text="${MSG_GALLERY_CLEAN_OK:-Nenhum arquivo inválido encontrado na galeria. ✅}"
         return
     fi
 
-    yad_question --title="WayLume - Limpar Galeria" \
-        --text="Encontrados ${#INVALID[@]} arquivo(s) corrompido(s):\n$(printf '%s\n' "${INVALID[@]}")\n\nDeseja removê-los?"
+    yad_question --title="${TITLE_GALLERY_CLEAN}" \
+        --text="$(printf "${MSG_GALLERY_CLEAN_CONFIRM:-Encontrados %d arquivo(s) corrompido(s):\n%s\n\nDeseja removê-los?}" "${#INVALID[@]}" "$(printf '%s\n' "${INVALID[@]}")")"
     if [ $? -eq 0 ]; then
         rm -f "${INVALID[@]}"
-        yad_info --title="WayLume" --text="${#INVALID[@]} arquivo(s) removido(s) da galeria."
+        yad_info --title="WayLume" --text="$(printf "${MSG_GALLERY_CLEAN_DONE:-%d arquivo(s) removido(s) da galeria.}" "${#INVALID[@]}")"
     fi
 }
 
@@ -373,13 +415,13 @@ clean_gallery() {
 fetch_and_apply_wallpaper() {
     if [ ! -f "$FETCHER_SCRIPT" ]; then
         yad_error \
-            --text="Os scripts ainda não foram gerados.\nClique em 'Instalar/Atualizar Scripts' primeiro."
+            --text="${MSG_FETCH_NO_SCRIPTS:-Os scripts ainda não foram gerados.\nClique em 'Instalar/Atualizar Scripts' primeiro.}"
         return
     fi
 
     # Show progress while downloading/applying
-    run_with_progress "Baixando e aplicando novo wallpaper..." "$FETCHER_SCRIPT"
-    yad_info --title="WayLume" --text="Wallpaper aplicado com sucesso! 🎉"
+    run_with_progress "${MSG_FETCH_PROGRESS:-Baixando e aplicando novo wallpaper...}" "$FETCHER_SCRIPT"
+    yad_info --title="WayLume" --text="${MSG_FETCH_DONE:-Wallpaper aplicado com sucesso! 🎉}"
 }
 
 # ====================================================
@@ -426,12 +468,12 @@ check_dependencies
 # Auto-install / update when running from outside ~/.local/bin
 if [ "$(realpath "$0")" != "$(realpath "$INSTALL_TARGET")" ]; then
     if [ -f "$INSTALL_TARGET" ]; then
-        yad_question --title="WayLume Atualização" \
-            --text="O WayLume já está instalado.\nDeseja atualizar para a versão desta pasta?\n\nSuas configurações serão preservadas."
+        yad_question --title="${TITLE_UPDATE_PROMPT}" \
+            --text="${MSG_UPDATE_PROMPT:-O WayLume já está instalado.\nDeseja atualizar para a versão desta pasta?\n\nSuas configurações serão preservadas.}"
         [ $? -eq 0 ] && install_or_update true
     else
-        yad_question --title="WayLume Instalação" \
-            --text="O WayLume não está instalado no sistema.\nDeseja instalar agora na sua pasta de usuário (~/.local/bin)?"
+        yad_question --title="${TITLE_INSTALL_PROMPT}" \
+            --text="${MSG_INSTALL_PROMPT:-O WayLume não está instalado no sistema.\nDeseja instalar agora na sua pasta de usuário (~/.local/bin)?}"
         [ $? -eq 0 ] && install_or_update false
     fi
 
@@ -445,18 +487,18 @@ fi
 load_config
 
 while true; do
-    CHOICE=$(yad "${YAD_BASE[@]}" --list --title="WayLume - Menu" \
-        --text="Gerenciador de Wallpapers para GNOME\nGaleria Atual: $DEST_DIR\nAtualização: $INTERVAL" \
-        --column="Opção" --column="Ação" --hide-column=1 --print-column=1 \
-        1 "📂 1. Escolher pasta da galeria" \
-        2 "⏱️ 2. Tempo de atualização" \
-        3 "🌍 3. Escolher fontes de imagens" \
-        4 "� 4. API Key da NASA (APOD)" \
-        5 "🚀 5. Instalar/Atualizar Scripts e Timer" \
-        6 "🎲 6. Mudar imagem AGORA (Baixar nova)" \
-        7 "🧹 7. Limpar galeria (remover arquivos inválidos)" \
-        8 "🗑️ 8. Remover WayLume" \
-        9 "🚪 9. Sair" \
+    CHOICE=$(yad "${YAD_BASE[@]}" --list --title="${TITLE_MENU}" \
+        --text="$(printf "${MSG_MENU_HEADER:-Gerenciador de Wallpapers para GNOME\nGaleria Atual: %s\nAtualização: %s}" "$DEST_DIR" "$INTERVAL")" \
+        --column="${COL_MENU_OPTION:-Opção}" --column="${COL_MENU_ACTION:-Ação}" --hide-column=1 --print-column=1 \
+        1 "${MENU_ITEM_1:-📂 1. Escolher pasta da galeria}" \
+        2 "${MENU_ITEM_2:-⏱️ 2. Tempo de atualização}" \
+        3 "${MENU_ITEM_3:-🌍 3. Escolher fontes de imagens}" \
+        4 "${MENU_ITEM_4:-🔑 4. API Key da NASA (APOD)}" \
+        5 "${MENU_ITEM_5:-🚀 5. Instalar/Atualizar Scripts e Timer}" \
+        6 "${MENU_ITEM_6:-🎲 6. Mudar imagem AGORA (Baixar nova)}" \
+        7 "${MENU_ITEM_7:-🧹 7. Limpar galeria (remover arquivos inválidos)}" \
+        8 "${MENU_ITEM_8:-🗑️ 8. Remover WayLume}" \
+        9 "${MENU_ITEM_9:-🚪 9. Sair}" \
         --width=460 --height=380 --no-headers --no-cancel)
     CHOICE="${CHOICE%%|*}"   # strip trailing pipe yad may append
 
