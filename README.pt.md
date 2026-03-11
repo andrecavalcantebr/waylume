@@ -50,21 +50,7 @@ Para instalar diretamente sem a pergunta interativa:
 
 ### Menu Principal
 
-```
-┌─ WayLume - Menu ──────────────────────────────┓
-│ Gerenciador de Wallpapers para GNOME       │
-│ Galeria: ~/Imagens/WayLume · Atualização: 2h │
-│                                            │
-│  ⬇️  1. Baixar nova imagem agora            │
-│  🎲  2. Imagem aleatória da galeria          │
-│  ➡️  3. Próxima imagem da galeria            │
-│  ⬅️  4. Imagem anterior da galeria           │
-│  ⚙️  5. Configurações                        │
-│  🔧  6. Manutenção                           │
-│  🚪  7. Sair                                 │
-│                              [Fechar] [OK] │
-└────────────────────────────────────────────┗
-```
+![Menu Principal](assets/pt/screenshot-menu-main.png)
 
 | Opção | O que faz |
 | --- | --- |
@@ -80,19 +66,7 @@ Para instalar diretamente sem a pergunta interativa:
 
 ### Submenu: Configurações
 
-```
-┌─ WayLume — Configurações ─────────────────────┓
-│ Altere as opções desejadas. Ao sair, você  │
-│ poderá aplicar as mudanças.                │
-│                                            │
-│  📂  1. Pasta da galeria                   │
-│  ⏱️  2. Tempo de atualização               │
-│  🌍  3. Fontes de imagens                  │
-│  🔑  4. API Key da NASA                    │
-│  🚪  5. Sair                                 │
-│                              [Fechar] [OK] │
-└────────────────────────────────────────────┗
-```
+![Submenu Configurações](assets/pt/screenshot-menu-settings.png)
 
 | Opção | O que configura |
 | --- | --- |
@@ -109,14 +83,7 @@ Para instalar diretamente sem a pergunta interativa:
 
 ### Submenu: Manutenção
 
-```
-┌─ WayLume — Manutenção ─────────────────────┓
-│                                            │
-│  🧹  1. Limpar galeria                     │
-│  🗑️  2. Remover WayLume                   │
-│                              [Fechar] [OK] │
-└────────────────────────────────────────────┗
-```
+![Submenu Manutenção](assets/pt/screenshot-menu-maintenance.png)
 
 | Opção | O que faz |
 | --- | --- |

@@ -50,21 +50,7 @@ To install directly without the interactive prompt:
 
 ### Main Menu
 
-```
-┌─ WayLume - Menu ────────────────────────────┓
-│ Wallpaper Manager for GNOME                │
-│ Gallery: ~/Pictures/WayLume · Interval: 2h  │
-│                                             │
-│  ⬇️  1. Download new image now              │
-│  🎲  2. Random image from gallery            │
-│  ➡️  3. Next image in gallery               │
-│  ⬅️  4. Previous image in gallery           │
-│  ⚙️  5. Settings                            │
-│  🔧  6. Maintenance                         │
-│  🚪  7. Exit                                │
-│                               [Close] [OK] │
-└───────────────────────────────────────────┗
-```
+![Main Menu](assets/en/screenshot-menu-main.png)
 
 | Option | What it does |
 | --- | --- |
@@ -80,19 +66,7 @@ To install directly without the interactive prompt:
 
 ### Submenu: Settings
 
-```
-┌─ WayLume — Settings ───────────────────────┓
-│ Change the desired options. On exit, you   │
-│ will be able to apply the changes.         │
-│                                             │
-│  📂  1. Gallery folder                      │
-│  ⏱️  2. Update interval                     │
-│  🌍  3. Image sources                       │
-│  🔑  4. NASA API Key                        │
-│  🚪  5. Exit                                │
-│                               [Close] [OK] │
-└───────────────────────────────────────────┗
-```
+![Settings Submenu](assets/en/screenshot-menu-settings.png)
 
 | Option | What it configures |
 | --- | --- |
@@ -109,14 +83,7 @@ To install directly without the interactive prompt:
 
 ### Submenu: Maintenance
 
-```
-┌─ WayLume — Maintenance ─────────────────────┓
-│                                             │
-│  🧹  1. Clean gallery                       │
-│  🗑️  2. Remove WayLume                     │
-│                               [Close] [OK] │
-└───────────────────────────────────────────┗
-```
+![Maintenance Submenu](assets/en/screenshot-menu-maintenance.png)
 
 | Option | What it does |
 | --- | --- |
