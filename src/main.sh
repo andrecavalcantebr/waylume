@@ -49,6 +49,9 @@ fi
 : "${TITLE_UNINSTALL_CONFIRM:=Warning}" "${TITLE_GALLERY_CLEAN:=WayLume - Clean Gallery}"
 : "${TITLE_UPDATE_PROMPT:=WayLume Update}" "${TITLE_INSTALL_PROMPT:=WayLume Install}"
 
+# Tracks in-session config changes (set by each set_* function; checked on submenu exit)
+_WL_CONFIG_DIRTY=false
+
 # ====================================================
 # FUNCTIONS
 # ====================================================
@@ -100,8 +103,8 @@ check_dependencies() {
 
     [ ${#MISSING[@]} -eq 0 ] && return 0
 
-    echo "${MSG_DEPS_NEEDED:-⚠️ O WayLume precisa de alguns pacotes para funcionar}: ${MISSING[*]}"
-    echo "${MSG_DEPS_ASKING:-Solicitando permissão para instalar...}"
+    echo "${MSG_DEPS_NEEDED:-⚠️ WayLume needs some packages to work}: ${MISSING[*]}"
+    echo "${MSG_DEPS_ASKING:-Requesting permission to install...}"
 
     # Translate command names to the correct package name per package manager
     pkg_name() {
@@ -119,7 +122,7 @@ check_dependencies() {
     local PACKAGES=()
     if command -v apt-get &>/dev/null; then
         for cmd in "${MISSING[@]}"; do PACKAGES+=("$(pkg_name "$cmd" apt)"); done
-        sudo apt-get update 2>/dev/null || echo "${MSG_DEPS_APT_FAIL:-⚠️  apt update falhou (rede?), tentando com índices locais...}"
+        sudo apt-get update 2>/dev/null || echo "${MSG_DEPS_APT_FAIL:-⚠️  apt update failed (network?), trying with local indexes...}"
         sudo apt-get install -y "${PACKAGES[@]}" || exit 1
     elif command -v dnf &>/dev/null; then
         for cmd in "${MISSING[@]}"; do PACKAGES+=("$(pkg_name "$cmd" dnf)"); done
@@ -128,12 +131,12 @@ check_dependencies() {
         for cmd in "${MISSING[@]}"; do PACKAGES+=("$(pkg_name "$cmd" pacman)"); done
         sudo pacman -S --noconfirm "${PACKAGES[@]}" || exit 1
     else
-        echo "${MSG_DEPS_NO_PM:-❌ Gerenciador de pacotes não reconhecido.}"
-        echo "${MSG_DEPS_MANUAL:-Por favor, instale manualmente}: ${MISSING[*]}"
+        echo "${MSG_DEPS_NO_PM:-❌ Package manager not recognized.}"
+        echo "${MSG_DEPS_MANUAL:-Please install manually}: ${MISSING[*]}"
         exit 1
     fi
 
-    echo "${MSG_DEPS_OK:-✅ Dependências instaladas com sucesso!}"
+    echo "${MSG_DEPS_OK:-✅ Dependencies installed successfully!}"
 }
 
 # Persist current config to disk
@@ -192,7 +195,7 @@ WantedBy=timers.target
 EOF
 
     # Show progress while running systemd commands
-    run_with_progress "${MSG_DEPLOY_PROGRESS:-Aplicando configurações e reiniciando timer...}" \
+    run_with_progress "${MSG_DEPLOY_PROGRESS:-Applying settings and restarting timer...}" \
         bash -c '
             systemctl --user daemon-reload
             systemctl --user disable waylume.timer 2>/dev/null
@@ -201,7 +204,7 @@ EOF
         '
 
     yad_info --title="WayLume" \
-        --text="$(printf "${MSG_DEPLOY_DONE:-Scripts gerados e Timer ativado!\nO sistema rodará a cada %s.}" "$INTERVAL")"
+        --text="$(printf "${MSG_DEPLOY_DONE:-Scripts generated and Timer activated!\nThe system will run every %s.}" "$INTERVAL")"
 }
 
 # Install or update WayLume into ~/.local
@@ -257,17 +260,17 @@ EOF
         load_config
         deploy_services
         yad_info --title="WayLume" \
-            --text="${MSG_UPDATE_DONE:-Atualizado com sucesso!\nScripts e timer foram atualizados.\nSuas configurações foram preservadas.}"
+            --text="${MSG_UPDATE_DONE:-Updated successfully!\nScripts and timer have been updated.\nYour settings were preserved.}"
     else
         yad_info --title="WayLume" \
-            --text="${MSG_INSTALL_DONE:-Instalado com sucesso!\nAbra o WayLume pelo menu de aplicativos do seu sistema.}"
+            --text="${MSG_INSTALL_DONE:-Installed successfully!\nOpen WayLume from your system application menu.}"
     fi
 }
 
 # Remove all WayLume files from the system (keeps the photo gallery)
 uninstall() {
     yad_question --title="${TITLE_UNINSTALL_CONFIRM}" \
-        --text="${MSG_UNINSTALL_CONFIRM:-Deseja realmente remover o WayLume do sistema?\nSua galeria de fotos NÃO será apagada.}"
+        --text="${MSG_UNINSTALL_CONFIRM:-Do you really want to remove WayLume from the system?\nYour photo gallery will NOT be deleted.}"
     if [ $? -eq 0 ]; then
         systemctl --user disable --now waylume.timer 2>/dev/null
         rm -f "$SYSTEMD_DIR"/waylume.*
@@ -278,7 +281,7 @@ uninstall() {
         systemctl --user daemon-reload
         gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" &>/dev/null
         update-desktop-database "$HOME/.local/share/applications" &>/dev/null
-        yad_info --text="${MSG_UNINSTALL_DONE:-WayLume desinstalado completamente.}"
+        yad_info --text="${MSG_UNINSTALL_DONE:-WayLume completely uninstalled.}"
         exit 0
     fi
 }
@@ -291,8 +294,8 @@ set_gallery_dir() {
         "${YAD_BTN_OKC[@]}")
     if [ -n "$NEW_DIR" ]; then
         DEST_DIR="$NEW_DIR"
-        save_config
-        yad_info --text="$(printf "${MSG_GALLERY_CHANGED:-Galeria alterada para:\n%s\n\nLembre-se de clicar em 'Instalar/Atualizar Scripts' para aplicar.}" "$DEST_DIR")"
+        _WL_CONFIG_DIRTY=true
+        yad_info --text="$(printf "${MSG_GALLERY_CHANGED:-Gallery changed to:\n%s}" "$DEST_DIR")"
     fi
 }
 
@@ -311,10 +314,10 @@ set_update_interval() {
 
     local UNIT
     UNIT=$(yad "${YAD_BASE[@]}" --list --radiolist --title="${TITLE_INTERVAL}" \
-        --text="${MSG_INTERVAL_UNIT:-Unidade de tempo:}" \
-        --column="" --column="${COL_INTERVAL_UNIT:-Unidade}" --column="${COL_INTERVAL_VALUE:-Valor}" \
-        $MIN_SEL "${ITEM_INTERVAL_MIN:-Minutos}" "min" \
-        $H_SEL   "${ITEM_INTERVAL_H:-Horas}"    "h"  \
+        --text="${MSG_INTERVAL_UNIT:-Time unit:}" \
+        --column="" --column="${COL_INTERVAL_UNIT:-Unit}" --column="${COL_INTERVAL_VALUE:-Value}" \
+        $MIN_SEL "${ITEM_INTERVAL_MIN:-Minutes}" "min" \
+        $H_SEL   "${ITEM_INTERVAL_H:-Hours}"    "h"  \
         --print-column=3 --hide-column=3 \
         --width=320 --height=280 \
         "${YAD_BTN_OKC[@]}")
@@ -323,12 +326,12 @@ set_update_interval() {
     [ -z "$UNIT" ] && return
 
     # Step 2: choose value with a slider (1–60)
-    local LABEL="${LABEL_MINUTES:-minutos}"
-    [ "$UNIT" = "h" ] && LABEL="${LABEL_HOURS:-horas}"
+    local LABEL="${LABEL_MINUTES:-minutes}"
+    [ "$UNIT" = "h" ] && LABEL="${LABEL_HOURS:-hours}"
 
     local VALUE
     VALUE=$(yad "${YAD_BASE[@]}" --scale --title="${TITLE_INTERVAL}" \
-        --text="$(printf "${MSG_INTERVAL_SCALE:-Intervalo em %s:}" "$LABEL")" \
+        --text="$(printf "${MSG_INTERVAL_SCALE:-Interval in %s:}" "$LABEL")" \
         --min-value=1 --max-value=60 --step=1 \
         --value="$CUR_VALUE" \
         "${YAD_BTN_OKC[@]}")
@@ -336,8 +339,8 @@ set_update_interval() {
     [ -z "$VALUE" ] && return
 
     INTERVAL="${VALUE}${UNIT}"
-    save_config
-    yad_info --text="$(printf "${MSG_INTERVAL_CHANGED:-Tempo alterado para %s.\nLembre-se de clicar em 'Instalar/Atualizar Scripts' para aplicar.}" "$INTERVAL")"
+    _WL_CONFIG_DIRTY=true
+    yad_info --text="$(printf "${MSG_INTERVAL_CHANGED:-Interval changed to %s.}" "$INTERVAL")"
 }
 
 # GUI: choose which image sources to use
@@ -349,8 +352,8 @@ set_image_sources() {
 
     local NEW_SOURCES
     NEW_SOURCES=$(yad "${YAD_BASE[@]}" --list --checklist --title="${TITLE_SOURCES}" \
-        --text="${MSG_SOURCES_PICK:-Escolha de onde baixar as imagens novas:}" \
-        --column="" --column="${COL_SOURCES_NAME:-Fonte}" \
+        --text="${MSG_SOURCES_PICK:-Choose where to download new images from:}" \
+        --column="" --column="${COL_SOURCES_NAME:-Source}" \
         $BING "Bing" $UNSPLASH "Unsplash" $APOD "APOD" \
         --print-column=2 --separator="," \
         --width=280 --height=220 --no-headers \
@@ -360,8 +363,8 @@ set_image_sources() {
 
     if [ -n "$NEW_SOURCES" ]; then
         SOURCES="$NEW_SOURCES"
-        save_config
-        yad_info --text="${MSG_SOURCES_CHANGED:-Fontes alteradas.\nLembre-se de clicar em 'Instalar/Atualizar Scripts' para aplicar.}"
+        _WL_CONFIG_DIRTY=true
+        yad_info --text="${MSG_SOURCES_CHANGED:-Image sources changed.}"
     fi
 }
 
@@ -369,15 +372,15 @@ set_image_sources() {
 set_apod_api_key() {
     local KEY_HINT
     if [ "$APOD_API_KEY" = "DEMO_KEY" ]; then
-        KEY_HINT="${MSG_APOD_KEY_DEMO:-(usando DEMO_KEY — gere a sua em api.nasa.gov, é grátis!)}"
+        KEY_HINT="${MSG_APOD_KEY_DEMO:-(using DEMO_KEY \u2014 get yours at api.nasa.gov, free at api.nasa.gov)}"
     else
-        KEY_HINT="$(printf "${MSG_APOD_KEY_SET:-(chave configurada: %s...)}" "${APOD_API_KEY:0:6}")"
+        KEY_HINT="$(printf "${MSG_APOD_KEY_SET:-(key configured: %s...)}" "${APOD_API_KEY:0:6}")"
     fi
 
     local NEW_KEY
     NEW_KEY=$(yad "${YAD_BASE[@]}" --entry \
         --title="${TITLE_APOD_KEY}" \
-        --text="$(printf "${MSG_APOD_KEY_PROMPT:-Informe sua API Key da NASA APOD:\n%s}" "$KEY_HINT")" \
+        --text="$(printf "${MSG_APOD_KEY_PROMPT:-Enter your NASA APOD API Key:\n%s}" "$KEY_HINT")" \
         --entry-text="$APOD_API_KEY" \
         --width=480 \
         "${YAD_BTN_OKC[@]}")
@@ -385,9 +388,9 @@ set_apod_api_key() {
     [ $? -ne 0 ] || [ -z "$NEW_KEY" ] && return
 
     APOD_API_KEY="$NEW_KEY"
-    save_config
+    _WL_CONFIG_DIRTY=true
     yad_info --title="WayLume" \
-        --text="${MSG_APOD_KEY_SAVED:-API Key salva!\nLembre-se de clicar em 'Instalar/Atualizar Scripts' para aplicar.}"
+        --text="${MSG_APOD_KEY_SAVED:-API Key saved!}"
 }
 
 # Remove non-image files from the gallery
@@ -399,29 +402,134 @@ clean_gallery() {
     done < <(find "$DEST_DIR" -type f \( -iname "*.jpg" -o -iname "*.png" -o -iname "*.webp" \) -print0)
 
     if [ ${#INVALID[@]} -eq 0 ]; then
-        yad_info --title="WayLume" --text="${MSG_GALLERY_CLEAN_OK:-Nenhum arquivo inválido encontrado na galeria. ✅}"
+        yad_info --title="WayLume" --text="${MSG_GALLERY_CLEAN_OK:-No invalid files found in the gallery. ✅}"
         return
     fi
 
     yad_question --title="${TITLE_GALLERY_CLEAN}" \
-        --text="$(printf "${MSG_GALLERY_CLEAN_CONFIRM:-Encontrados %d arquivo(s) corrompido(s):\n%s\n\nDeseja removê-los?}" "${#INVALID[@]}" "$(printf '%s\n' "${INVALID[@]}")")"
+        --text="$(printf "${MSG_GALLERY_CLEAN_CONFIRM:-Found %d corrupted file(s):\n%s\n\nDo you want to remove them?}" "${#INVALID[@]}" "$(printf '%s\n' "${INVALID[@]}")")"
     if [ $? -eq 0 ]; then
         rm -f "${INVALID[@]}"
-        yad_info --title="WayLume" --text="$(printf "${MSG_GALLERY_CLEAN_DONE:-%d arquivo(s) removido(s) da galeria.}" "${#INVALID[@]}")"
+        yad_info --title="WayLume" --text="$(printf "${MSG_GALLERY_CLEAN_DONE:-%d file(s) removed from the gallery.}" "${#INVALID[@]}")"
     fi
 }
 
-# Apply a random wallpaper from the local gallery immediately
+# Download a new image from a configured source and apply it immediately
 fetch_and_apply_wallpaper() {
     if [ ! -f "$FETCHER_SCRIPT" ]; then
         yad_error \
-            --text="${MSG_FETCH_NO_SCRIPTS:-Os scripts ainda não foram gerados.\nClique em 'Instalar/Atualizar Scripts' primeiro.}"
+            --text="${MSG_FETCH_NO_SCRIPTS:-Scripts not generated. Run: waylume --install}"
         return
     fi
 
     # Show progress while downloading/applying
-    run_with_progress "${MSG_FETCH_PROGRESS:-Baixando e aplicando novo wallpaper...}" "$FETCHER_SCRIPT"
-    yad_info --title="WayLume" --text="${MSG_FETCH_DONE:-Wallpaper aplicado com sucesso! 🎉}"
+    run_with_progress "${MSG_FETCH_PROGRESS:-Downloading and applying new wallpaper...}" "$FETCHER_SCRIPT"
+    yad_info --title="WayLume" --text="${MSG_FETCH_DONE:-Wallpaper applied successfully! 🎉}"
+}
+
+# Navigate the local gallery circularly (direction: next | prev | random)
+# Images already have overlays applied — only gsettings + notify-send here.
+_gallery_navigate() {
+    local DIRECTION="$1"
+    local FILES=()
+    while IFS= read -r -d '' f; do
+        FILES+=("$f")
+    done < <(find "$DEST_DIR" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.png" \) -print0 | sort -z)
+
+    local COUNT=${#FILES[@]}
+    if [ "$COUNT" -eq 0 ]; then
+        notify-send "WayLume" "${MSG_NAV_NO_IMAGES:-No images in the gallery. Download new images first.}"
+        return
+    fi
+
+    local IDX=0
+    if [ "$DIRECTION" = "random" ]; then
+        IDX=$(( RANDOM % COUNT ))
+    else
+        # Find the currently displayed wallpaper in the sorted gallery list
+        local CURRENT
+        CURRENT=$(gsettings get org.gnome.desktop.background picture-uri 2>/dev/null \
+            | tr -d "'" | sed 's|file://||')
+        local FOUND=false
+        for i in "${!FILES[@]}"; do
+            if [ "${FILES[$i]}" = "$CURRENT" ]; then
+                IDX=$i
+                FOUND=true
+                break
+            fi
+        done
+        # If current is not from our gallery, start from beginning / end
+        if ! $FOUND; then
+            [ "$DIRECTION" = "prev" ] && IDX=$(( COUNT - 1 )) || IDX=0
+        elif [ "$DIRECTION" = "next" ]; then
+            IDX=$(( (IDX + 1) % COUNT ))
+        else
+            IDX=$(( (IDX - 1 + COUNT) % COUNT ))
+        fi
+    fi
+
+    local TARGET="${FILES[$IDX]}"
+    gsettings set org.gnome.desktop.background picture-uri      "file://$TARGET"
+    gsettings set org.gnome.desktop.background picture-uri-dark "file://$TARGET"
+    notify-send "WayLume" "$(printf "${MSG_NAV_APPLIED:-📸 %s}" "$(basename "$TARGET")")"
+}
+
+go_next_image()   { _gallery_navigate next;   }
+go_prev_image()   { _gallery_navigate prev;    }
+go_random_image() { _gallery_navigate random;  }
+
+# Submenu: configuration options — accumulates changes in memory;
+# saves and deploys only when user confirms on exit.
+menu_settings() {
+    _WL_CONFIG_DIRTY=false
+    while true; do
+        CHOICE=$(yad "${YAD_BASE[@]}" --list --title="${TITLE_SETTINGS:-WayLume \u2014 Settings}" \
+            --text="${MSG_SETTINGS_HEADER:-Change the desired options. On exit, you can apply the changes.}" \
+            --column="${COL_MENU_OPTION:-Option}" --column="${COL_MENU_ACTION:-Action}" --hide-column=1 --print-column=1 \
+            1 "${MENU_SETTINGS_1:-📂 1. Gallery folder}" \
+            2 "${MENU_SETTINGS_2:-⏱️  2. Update interval}" \
+            3 "${MENU_SETTINGS_3:-🌍 3. Image sources}" \
+            4 "${MENU_SETTINGS_4:-🔑 4. NASA API Key}" \
+            5 "${MENU_SETTINGS_5:-🚪 5. Exit}" \
+            --width=420 --height=320 --no-headers \
+            "${YAD_BTN_OKC[@]}")
+        CHOICE="${CHOICE%%|*}"
+        [ $? -ne 0 ] || [ -z "$CHOICE" ] && break
+        case "$CHOICE" in
+            1) set_gallery_dir      ;;
+            2) set_update_interval  ;;
+            3) set_image_sources    ;;
+            4) set_apod_api_key     ;;
+            5) break                ;;
+        esac
+    done
+
+    if $_WL_CONFIG_DIRTY; then
+        yad_question --title="WayLume" \
+            --text="${MSG_SETTINGS_APPLY_PROMPT:-Settings were changed. Do you want to apply now?\nThis will also restart the timer with the new interval.}"
+        if [ $? -eq 0 ]; then
+            save_config
+            deploy_services
+        fi
+    fi
+}
+
+# Submenu: maintenance options (clean gallery, uninstall)
+menu_maintenance() {
+    while true; do
+        CHOICE=$(yad "${YAD_BASE[@]}" --list --title="${TITLE_MAINTENANCE:-WayLume \u2014 Maintenance}" \
+            --column="${COL_MENU_OPTION:-Option}" --column="${COL_MENU_ACTION:-Action}" --hide-column=1 --print-column=1 \
+            1 "${MENU_MAINTENANCE_1:-🧹 1. Clean gallery}" \
+            2 "${MENU_MAINTENANCE_2:-🗑️  2. Remove WayLume}" \
+            --width=380 --height=220 --no-headers \
+            "${YAD_BTN_OKC[@]}")
+        CHOICE="${CHOICE%%|*}"
+        [ $? -ne 0 ] || [ -z "$CHOICE" ] && break
+        case "$CHOICE" in
+            1) clean_gallery ;;
+            2) uninstall     ;;
+        esac
+    done
 }
 
 # ====================================================
@@ -446,15 +554,15 @@ case "${1:-}" in
         exit 0
         ;;
     --help|-h)
-        echo "Uso: waylume [opção]"
-        echo "  (sem opção)   Abre o menu de configuração (ou instala se necessário)"
-        echo "  --install     Instala ou atualiza o WayLume"
-        echo "  --uninstall   Remove o WayLume do sistema"
-        echo "  --help        Exibe esta ajuda"
+        echo "Usage: waylume [option]"
+        echo "  (no option)   Opens the settings menu (or installs if needed)"
+        echo "  --install     Install or update WayLume"
+        echo "  --uninstall   Remove WayLume from the system"
+        echo "  --help        Show this help"
         exit 0
         ;;
     "")
-        : # Sem argumento — continua com o fluxo normal
+        : # No argument — continue with normal flow
         ;;
     *)
         echo "Opção desconhecida: $1" >&2
@@ -469,11 +577,11 @@ check_dependencies
 if [ "$(realpath "$0")" != "$(realpath "$INSTALL_TARGET")" ]; then
     if [ -f "$INSTALL_TARGET" ]; then
         yad_question --title="${TITLE_UPDATE_PROMPT}" \
-            --text="${MSG_UPDATE_PROMPT:-O WayLume já está instalado.\nDeseja atualizar para a versão desta pasta?\n\nSuas configurações serão preservadas.}"
+            --text="${MSG_UPDATE_PROMPT:-WayLume is already installed.\nDo you want to update to the version in this folder?\n\nYour settings will be preserved.}"
         [ $? -eq 0 ] && install_or_update true
     else
         yad_question --title="${TITLE_INSTALL_PROMPT}" \
-            --text="${MSG_INSTALL_PROMPT:-O WayLume não está instalado no sistema.\nDeseja instalar agora na sua pasta de usuário (~/.local/bin)?}"
+            --text="${MSG_INSTALL_PROMPT:-WayLume is not installed on this system.\nDo you want to install it now to your user folder (~/.local/bin)?}"
         [ $? -eq 0 ] && install_or_update false
     fi
 
@@ -481,40 +589,37 @@ if [ "$(realpath "$0")" != "$(realpath "$INSTALL_TARGET")" ]; then
 fi
 
 # ====================================================
-# MAIN — load config and show the settings menu
+# MAIN — load config and show the main menu
 # ====================================================
 
 load_config
 
 while true; do
     CHOICE=$(yad "${YAD_BASE[@]}" --list --title="${TITLE_MENU}" \
-        --text="$(printf "${MSG_MENU_HEADER:-Gerenciador de Wallpapers para GNOME\nGaleria Atual: %s\nAtualização: %s}" "$DEST_DIR" "$INTERVAL")" \
-        --column="${COL_MENU_OPTION:-Opção}" --column="${COL_MENU_ACTION:-Ação}" --hide-column=1 --print-column=1 \
-        1 "${MENU_ITEM_1:-📂 1. Escolher pasta da galeria}" \
-        2 "${MENU_ITEM_2:-⏱️ 2. Tempo de atualização}" \
-        3 "${MENU_ITEM_3:-🌍 3. Escolher fontes de imagens}" \
-        4 "${MENU_ITEM_4:-🔑 4. API Key da NASA (APOD)}" \
-        5 "${MENU_ITEM_5:-🚀 5. Instalar/Atualizar Scripts e Timer}" \
-        6 "${MENU_ITEM_6:-🎲 6. Mudar imagem AGORA (Baixar nova)}" \
-        7 "${MENU_ITEM_7:-🧹 7. Limpar galeria (remover arquivos inválidos)}" \
-        8 "${MENU_ITEM_8:-🗑️ 8. Remover WayLume}" \
-        9 "${MENU_ITEM_9:-🚪 9. Sair}" \
-        --width=460 --height=380 --no-headers --no-cancel)
+        --text="$(printf "${MSG_MENU_HEADER:-Wallpaper Manager for GNOME\nCurrent Gallery: %s\nUpdate Interval: %s}" "$DEST_DIR" "$INTERVAL")" \
+        --column="${COL_MENU_OPTION:-Option}" --column="${COL_MENU_ACTION:-Action}" --hide-column=1 --print-column=1 \
+        1 "${MENU_ITEM_1:-⬇️  1. Download new image now}" \
+        2 "${MENU_ITEM_2:-🎲 2. Random image from gallery}" \
+        3 "${MENU_ITEM_3:-➡️  3. Next image in gallery}" \
+        4 "${MENU_ITEM_4:-⬅️  4. Previous image in gallery}" \
+        5 "${MENU_ITEM_5:-⚙️  5. Settings}" \
+        6 "${MENU_ITEM_6:-🔧 6. Maintenance}" \
+        7 "${MENU_ITEM_7:-🚪 7. Exit}" \
+        --width=460 --height=340 --no-headers \
+        "${YAD_BTN_OKC[@]}")
     CHOICE="${CHOICE%%|*}"   # strip trailing pipe yad may append
 
     # Exit on window close (X button / Alt+F4) or empty selection
     [ $? -ne 0 ] || [ -z "$CHOICE" ] && break
 
     case "$CHOICE" in
-        1) set_gallery_dir           ;;
-        2) set_update_interval       ;;
-        3) set_image_sources         ;;
-        4) set_apod_api_key          ;;
-        5) deploy_services           ;;
-        6) fetch_and_apply_wallpaper ;;
-        7) clean_gallery             ;;
-        8) uninstall                 ;;
-        9) break                     ;;
+        1) fetch_and_apply_wallpaper ;;
+        2) go_random_image           ;;
+        3) go_next_image             ;;
+        4) go_prev_image             ;;
+        5) menu_settings             ;;
+        6) menu_maintenance          ;;
+        7) break                     ;;
     esac
 done
 

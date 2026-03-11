@@ -31,7 +31,7 @@ MSG_UNINSTALL_DONE="WayLume completely uninstalled."
 
 # ── set_gallery_dir ───────────────────────────────────────────────────────────
 TITLE_GALLERY_PICK="Choose Gallery Folder"
-MSG_GALLERY_CHANGED="Gallery changed to:\n%s\n\nRemember to click 'Install/Update Scripts' to apply."
+MSG_GALLERY_CHANGED="Gallery changed to:\n%s"
 
 # ── set_update_interval ───────────────────────────────────────────────────────
 TITLE_INTERVAL="Update Interval"
@@ -43,20 +43,20 @@ ITEM_INTERVAL_H="Hours"
 LABEL_MINUTES="minutes"
 LABEL_HOURS="hours"
 MSG_INTERVAL_SCALE="Interval in %s:"   # %s = minutes | hours
-MSG_INTERVAL_CHANGED="Interval changed to %s.\nRemember to click 'Install/Update Scripts' to apply."
+MSG_INTERVAL_CHANGED="Interval changed to %s."
 
 # ── set_image_sources ─────────────────────────────────────────────────────────
 TITLE_SOURCES="Image Sources"
 MSG_SOURCES_PICK="Choose where to download new images from:"
 COL_SOURCES_NAME="Source"
-MSG_SOURCES_CHANGED="Sources changed.\nRemember to click 'Install/Update Scripts' to apply."
+MSG_SOURCES_CHANGED="Image sources changed."
 
 # ── set_apod_api_key ──────────────────────────────────────────────────────────
 TITLE_APOD_KEY="WayLume - NASA API Key"
 MSG_APOD_KEY_DEMO="(using DEMO_KEY — get yours at api.nasa.gov, it's free!)"
 MSG_APOD_KEY_SET="(key configured: %s...)"   # %s = first 6 chars
 MSG_APOD_KEY_PROMPT="Enter your NASA APOD API Key:\n%s"   # %s = MSG_APOD_KEY_*
-MSG_APOD_KEY_SAVED="API Key saved!\nRemember to click 'Install/Update Scripts' to apply."
+MSG_APOD_KEY_SAVED="API Key saved!"
 
 # ── clean_gallery ─────────────────────────────────────────────────────────────
 MSG_GALLERY_CLEAN_OK="No invalid files found in the gallery. ✅"
@@ -65,7 +65,7 @@ MSG_GALLERY_CLEAN_CONFIRM="Found %d corrupted file(s):\n%s\n\nDo you want to rem
 MSG_GALLERY_CLEAN_DONE="%d file(s) removed from the gallery."
 
 # ── fetch_and_apply_wallpaper ─────────────────────────────────────────────────
-MSG_FETCH_NO_SCRIPTS="Scripts have not been generated yet.\nClick 'Install/Update Scripts' first."
+MSG_FETCH_NO_SCRIPTS="Scripts not generated. Run: waylume --install"
 MSG_FETCH_PROGRESS="Downloading and applying new wallpaper..."
 MSG_FETCH_DONE="Wallpaper applied successfully! 🎉"
 
@@ -80,15 +80,32 @@ TITLE_MENU="WayLume - Menu"
 MSG_MENU_HEADER="Wallpaper Manager for GNOME\nCurrent Gallery: %s\nUpdate Interval: %s"
 COL_MENU_OPTION="Option"
 COL_MENU_ACTION="Action"
-MENU_ITEM_1="📂 1. Choose gallery folder"
-MENU_ITEM_2="⏱️ 2. Update interval"
-MENU_ITEM_3="🌍 3. Choose image sources"
-MENU_ITEM_4="🔑 4. NASA API Key (APOD)"
-MENU_ITEM_5="🚀 5. Install/Update Scripts and Timer"
-MENU_ITEM_6="🎲 6. Change image NOW (Download new)"
-MENU_ITEM_7="🧹 7. Clean gallery (remove invalid files)"
-MENU_ITEM_8="🗑️ 8. Remove WayLume"
-MENU_ITEM_9="🚪 9. Exit"
+MENU_ITEM_1="⬇️  1. Download new image now"
+MENU_ITEM_2="🎲 2. Random image from gallery"
+MENU_ITEM_3="➡️  3. Next image in gallery"
+MENU_ITEM_4="⬅️  4. Previous image in gallery"
+MENU_ITEM_5="⚙️  5. Settings"
+MENU_ITEM_6="🔧 6. Maintenance"
+MENU_ITEM_7="🚪 7. Exit"
+
+# ── settings submenu ──────────────────────────────────────────────────────────────────────────────
+TITLE_SETTINGS="WayLume — Settings"
+MSG_SETTINGS_HEADER="Change the desired options. On exit, you can apply the changes."
+MENU_SETTINGS_1="📂 1. Gallery folder"
+MENU_SETTINGS_2="⏱️  2. Update interval"
+MENU_SETTINGS_3="🌍 3. Image sources"
+MENU_SETTINGS_4="🔑 4. NASA API Key"
+MENU_SETTINGS_5="🚪 5. Exit"
+MSG_SETTINGS_APPLY_PROMPT="Settings were changed. Do you want to apply now?\nThis will also restart the timer with the new interval."
+
+# ── maintenance submenu ────────────────────────────────────────────────────────────────────────────
+TITLE_MAINTENANCE="WayLume — Maintenance"
+MENU_MAINTENANCE_1="🧹 1. Clean gallery"
+MENU_MAINTENANCE_2="🗑️  2. Remove WayLume"
+
+# ── gallery navigation ───────────────────────────────────────────────────────────────────────
+MSG_NAV_APPLIED="📸 %s"
+MSG_NAV_NO_IMAGES="No images in the gallery. Download new images first."
 
 # ── fetcher: notify-send messages ─────────────────────────────────────────────
 MSG_FETCH_NO_IMAGES="No images found in the gallery."

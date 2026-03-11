@@ -31,7 +31,7 @@ MSG_UNINSTALL_DONE="WayLume desinstalado completamente."
 
 # ── set_gallery_dir ───────────────────────────────────────────────────────────
 TITLE_GALLERY_PICK="Escolha a pasta da Galeria"
-MSG_GALLERY_CHANGED="Galeria alterada para:\n%s\n\nLembre-se de clicar em 'Instalar/Atualizar Scripts' para aplicar."
+MSG_GALLERY_CHANGED="Galeria alterada para:\n%s"
 
 # ── set_update_interval ───────────────────────────────────────────────────────
 TITLE_INTERVAL="Tempo de Atualização"
@@ -43,20 +43,20 @@ ITEM_INTERVAL_H="Horas"
 LABEL_MINUTES="minutos"
 LABEL_HOURS="horas"
 MSG_INTERVAL_SCALE="Intervalo em %s:"   # %s = minutos | horas
-MSG_INTERVAL_CHANGED="Tempo alterado para %s.\nLembre-se de clicar em 'Instalar/Atualizar Scripts' para aplicar."
+MSG_INTERVAL_CHANGED="Intervalo alterado para %s."
 
 # ── set_image_sources ─────────────────────────────────────────────────────────
 TITLE_SOURCES="Fontes de Imagens"
 MSG_SOURCES_PICK="Escolha de onde baixar as imagens novas:"
 COL_SOURCES_NAME="Fonte"
-MSG_SOURCES_CHANGED="Fontes alteradas.\nLembre-se de clicar em 'Instalar/Atualizar Scripts' para aplicar."
+MSG_SOURCES_CHANGED="Fontes de imagens alteradas."
 
 # ── set_apod_api_key ──────────────────────────────────────────────────────────
 TITLE_APOD_KEY="WayLume - NASA API Key"
 MSG_APOD_KEY_DEMO="(usando DEMO_KEY — gere a sua em api.nasa.gov, é grátis!)"
 MSG_APOD_KEY_SET="(chave configurada: %s...)"   # %s = primeiros 6 chars
 MSG_APOD_KEY_PROMPT="Informe sua API Key da NASA APOD:\n%s"   # %s = MSG_APOD_KEY_*
-MSG_APOD_KEY_SAVED="API Key salva!\nLembre-se de clicar em 'Instalar/Atualizar Scripts' para aplicar."
+MSG_APOD_KEY_SAVED="API Key salva!"
 
 # ── clean_gallery ─────────────────────────────────────────────────────────────
 MSG_GALLERY_CLEAN_OK="Nenhum arquivo inválido encontrado na galeria. ✅"
@@ -65,7 +65,7 @@ MSG_GALLERY_CLEAN_CONFIRM="Encontrados %d arquivo(s) corrompido(s):\n%s\n\nDesej
 MSG_GALLERY_CLEAN_DONE="%d arquivo(s) removido(s) da galeria."
 
 # ── fetch_and_apply_wallpaper ─────────────────────────────────────────────────
-MSG_FETCH_NO_SCRIPTS="Os scripts ainda não foram gerados.\nClique em 'Instalar/Atualizar Scripts' primeiro."
+MSG_FETCH_NO_SCRIPTS="Os scripts não foram gerados. Execute: waylume --install"
 MSG_FETCH_PROGRESS="Baixando e aplicando novo wallpaper..."
 MSG_FETCH_DONE="Wallpaper aplicado com sucesso! 🎉"
 
@@ -80,15 +80,32 @@ TITLE_MENU="WayLume - Menu"
 MSG_MENU_HEADER="Gerenciador de Wallpapers para GNOME\nGaleria Atual: %s\nAtualização: %s"
 COL_MENU_OPTION="Opção"
 COL_MENU_ACTION="Ação"
-MENU_ITEM_1="📂 1. Escolher pasta da galeria"
-MENU_ITEM_2="⏱️ 2. Tempo de atualização"
-MENU_ITEM_3="🌍 3. Escolher fontes de imagens"
-MENU_ITEM_4="🔑 4. API Key da NASA (APOD)"
-MENU_ITEM_5="🚀 5. Instalar/Atualizar Scripts e Timer"
-MENU_ITEM_6="🎲 6. Mudar imagem AGORA (Baixar nova)"
-MENU_ITEM_7="🧹 7. Limpar galeria (remover arquivos inválidos)"
-MENU_ITEM_8="🗑️ 8. Remover WayLume"
-MENU_ITEM_9="🚪 9. Sair"
+MENU_ITEM_1="⬇️  1. Baixar nova imagem agora"
+MENU_ITEM_2="🎲 2. Imagem aleatória da galeria"
+MENU_ITEM_3="➡️  3. Próxima imagem da galeria"
+MENU_ITEM_4="⬅️  4. Imagem anterior da galeria"
+MENU_ITEM_5="⚙️  5. Configurações"
+MENU_ITEM_6="🔧 6. Manutenção"
+MENU_ITEM_7="🚪 7. Sair"
+
+# ── submenu configurações ───────────────────────────────────────────────────────────────────
+TITLE_SETTINGS="WayLume — Configurações"
+MSG_SETTINGS_HEADER="Altere as opções desejadas. Ao sair, você poderá aplicar as mudanças."
+MENU_SETTINGS_1="📂 1. Pasta da galeria"
+MENU_SETTINGS_2="⏱️  2. Tempo de atualização"
+MENU_SETTINGS_3="🌍 3. Fontes de imagens"
+MENU_SETTINGS_4="🔑 4. API Key da NASA"
+MENU_SETTINGS_5="🚪 5. Sair"
+MSG_SETTINGS_APPLY_PROMPT="Configurações foram alteradas. Deseja aplicar agora?\nIsso também reinicia o timer com o novo intervalo."
+
+# ── submenu manutenção ────────────────────────────────────────────────────────────────────────────
+TITLE_MAINTENANCE="WayLume — Manutenção"
+MENU_MAINTENANCE_1="🧹 1. Limpar galeria"
+MENU_MAINTENANCE_2="🗑️  2. Remover WayLume"
+
+# ── navegação na galeria ────────────────────────────────────────────────────────────────────────
+MSG_NAV_APPLIED="📸 %s"
+MSG_NAV_NO_IMAGES="Nenhuma imagem na galeria. Baixe novas imagens primeiro."
 
 # ── fetcher: mensagens de notify-send ────────────────────────────────────────
 MSG_FETCH_NO_IMAGES="Nenhuma imagem encontrada na galeria."

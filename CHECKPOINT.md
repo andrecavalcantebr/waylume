@@ -1,4 +1,4 @@
-# CHECKPOINT — Session 2026-03-06
+# CHECKPOINT — Session 2026-03-11
 
 > Read this file at the start of each session to recover development context.
 
@@ -8,7 +8,7 @@
 
 - **Repo:** github.com/andrecavalcantebr/waylume
 - **Branch:** main
-- **Latest commit:** `5238bed` — docs: translate CHECKPOINT.md fully to English
+- **Latest commit:** `5238bed` — (session work not yet committed — see "Next session agenda")
 - **Git log:**
 
   ```text
@@ -27,23 +27,21 @@
 ```text
 waylume/
   src/
-    main.sh       (515 lines) — installer and GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
-    fetcher.sh    (237 lines) — systemd worker (waylume-fetch); standalone-testable with: bash src/fetcher.sh
+    main.sh       (626 lines) — installer and GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
+    fetcher.sh    (240 lines) — systemd worker (waylume-fetch); standalone-testable with: bash src/fetcher.sh
     waylume.svg   ( 22 lines) — application SVG icon
     i18n/
-      pt.sh       ( 99 lines) — all strings in Brazilian Portuguese
-      en.sh       ( 99 lines) — all strings in English
+      pt.sh       (116 lines) — all strings in Brazilian Portuguese
+      en.sh       (116 lines) — all strings in English
   build.sh        ( 46 lines) — combines the above files → waylume.sh
-  waylume.sh      (972 lines) — GENERATED ARTIFACT; do not edit directly
-  README.md                   — language hub (links → README.pt.md and README.en.md)
-  .markdownlint.json          — disabled rules: MD013, MD026, MD030, MD033, MD041
-  .markdownlintignore         — excludes LICENSE.md (canonical GPLv3 text)
-  .vscode/settings.json       — markdownlint.ignore: ["LICENSE.md"]
-  README.pt.md                — public documentation in Portuguese
-  README.en.md                — public documentation in English
-  LICENSE.md                  — GPLv3 (authoritative English text)
-  LICENSE.pt.md               — informational GPLv3 summary in Portuguese (does not replace EN)
-  CHECKPOINT.md               — this file
+  waylume.sh      (1120 lines) — GENERATED ARTIFACT; do not edit directly
+  DEVELOPER.md               — technical reference for contributors
+  README.md                  — language hub (links → README.pt.md and README.en.md)
+  README.pt.md               — user documentation in Portuguese
+  README.en.md               — user documentation in English
+  LICENSE.md                 — GPLv3 (authoritative English text)
+  LICENSE.pt.md              — informational GPLv3 summary in Portuguese (does not replace EN)
+  CHECKPOINT.md              — this file
 ```
 
 ### Golden rule
@@ -147,16 +145,44 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 
 ### Menu (src/main.sh)
 
-| Option | Function |
-| --- | --- |
-| 📂 Gallery folder | `set_gallery_dir` |
-| ⏱️ Update interval | `set_update_interval` |
-| 🌍 Image sources | `set_image_sources` |
-| 🔑 NASA API Key | `set_apod_api_key` |
-| 🚀 Install/Update | `deploy_services` |
-| 🎲 Change image NOW | `fetch_and_apply_wallpaper` |
-| 🧹 Clear gallery | `clean_gallery` |
-| 🗑️ Remove WayLume | `uninstall` |
+#### Main menu (7 items)
+
+| # | Option | Handler |
+| --- | --- | --- |
+| 1 | ⬇️ Baixar nova imagem agora | `fetch_and_apply_wallpaper` |
+| 2 | 🎲 Imagem aleatória da galeria | `go_random_image` |
+| 3 | ➡️ Próxima imagem da galeria | `go_next_image` |
+| 4 | ⬅️ Imagem anterior da galeria | `go_prev_image` |
+| 5 | ⚙️ Configurações | `menu_settings` (submenu) |
+| 6 | 🔧 Manutenção | `menu_maintenance` (submenu) |
+| 7 | 🚪 Sair | `break` |
+
+#### Settings submenu — deferred save pattern
+
+`_WL_CONFIG_DIRTY=false` reset on entry. Each `set_*` sets the flag but does **not** call `save_config`. On exit: if dirty → ask user → `save_config + deploy_services`.
+
+| # | Option | Handler |
+| --- | --- | --- |
+| 1 | 📂 Pasta da galeria | `set_gallery_dir` |
+| 2 | ⏱️ Tempo de atualização | `set_update_interval` |
+| 3 | 🌍 Fontes de imagens | `set_image_sources` |
+| 4 | 🔑 API Key da NASA | `set_apod_api_key` |
+| 5 | 🚪 Sair | `break` → triggers apply prompt |
+
+#### Maintenance submenu
+
+| # | Option | Handler |
+| --- | --- | --- |
+| 1 | 🧹 Limpar galeria | `clean_gallery` |
+| 2 | 🗑️ Remover WayLume | `uninstall` |
+
+#### Gallery navigation
+
+`_gallery_navigate(next|prev|random)` in `main.sh`:
+- Filenames `waylume_YYYYMMDD_HHMMSS.jpg` → alphabetical sort = chronological order
+- Current wallpaper read from `gsettings`; circular index with modulo arithmetic
+- No ImageMagick: overlays already applied; only `gsettings set` + `notify-send`
+- `go_next_image()`, `go_prev_image()`, `go_random_image()` are thin one-line wrappers
 
 ### Fetcher (src/fetcher.sh)
 
@@ -167,13 +193,17 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 - **Title overlay:** ImageMagick via `-composite` (JPEG has no alpha channel)
 - **Brand strip (NorthWest):** plain text overlay: `WayLume` (DejaVu-Sans-Bold 16pt white +14+17) + `is.gd/48OrTP` (DejaVu-Sans 13pt #bbbbbb +14+35). No external assets.
 - **APOD:** uses `url` (960px) instead of `hdurl` (4K) — ~10x faster
+- **Bing fix (2026-03-11):** API changed `format=js` → `format=json`; added fallback to `apply_random_local` when URL is empty
 
-### Fixed bugs (previous sessions)
+### Fixed bugs
 
-- `yad_info/error/question` called themselves recursively → segfault
-- `SOURCES` saved by yad with literal `\n` → `case` never matched → sources never downloaded
-- Title overlay with `-fill '#00000099' -draw "rectangle"` invisible in JPEG (fixed with composite)
-- APOD `hdurl` caused 30s+ download delay (fixed: use `url`)
+| Session | Bug | Fix |
+| --- | --- | --- |
+| 2026-03-11 | Bing: `format=js` rejected by API → empty URL → silent failure | Changed to `format=json`; added fallback to local gallery |
+| earlier | `yad_info/error/question` recursive → segfault | Rewrote as non-recursive wrappers |
+| earlier | `SOURCES` saved with literal `\n` → `case` never matched | Strip whitespace from `SOURCE_ARRAY` elements |
+| earlier | Title overlay invisible in JPEG (alpha channel) | Fixed with `-composite` |
+| earlier | APOD `hdurl` → 30s+ downloads | Use `url` (960px) |
 
 ---
 
@@ -193,11 +223,26 @@ APOD_API_KEY="DEMO_KEY
 
 ## Next session agenda
 
-### 1. Push to origin
+### 1. Commit and push this session's work
 
-✅ Done. `origin/main` is in sync with `HEAD` (`5238bed`).
+Suggested commit message:
 
-### 2. Source modularisation — when a 4th source is added
+```
+fix: bing source format=js → format=json + fallback on empty URL
+feat: menu refactor — submenus, gallery nav (next/prev/random), dirty-flag config flow
+docs: CHECKPOINT, DEVELOPER.md, README user rewrite
+```
+
+### 2. Add screenshots to repository
+
+Add actual screenshots to `docs/screens/` for the README mini-manual:
+
+- `docs/screens/menu-principal.png`
+- `docs/screens/submenu-configuracoes.png`
+- `docs/screens/submenu-manutencao.png`
+- `docs/screens/wallpaper-exemplo.png`
+
+### 3. Source modularisation — when a 4th source is added
 
 **Approach:** each source becomes an independent file under `src/sources/`.
 

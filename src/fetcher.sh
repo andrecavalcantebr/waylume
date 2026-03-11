@@ -44,10 +44,10 @@ apply_random_local() {
     local LABEL="$1"
     TARGET_PATH=$(find "$DEST_DIR" -type f \( -iname "*.jpg" -o -iname "*.png" \) | shuf -n 1)
     if [ -z "$TARGET_PATH" ]; then
-        notify-send "WayLume" "${MSG_FETCH_NO_IMAGES:-Nenhuma imagem encontrada na galeria.}"
+        notify-send "WayLume" "${MSG_FETCH_NO_IMAGES:-No images found in the gallery.}"
         exit 0   # handled — timer will retry later
     fi
-    MESSAGE="$(printf "${MSG_FETCH_LOCAL:-🔄 Galeria local (%s já baixado hoje)}" "$LABEL")"
+    MESSAGE="$(printf "${MSG_FETCH_LOCAL:-🔄 Local gallery (%s already downloaded today)}" "$LABEL")"
 }
 
 # Persist updated download dates to state file.
@@ -75,15 +75,18 @@ fetch_bing() {
     fi
 
     local JSON URL
-    JSON=$(curl -sL "https://bing.biturl.top/?resolution=1920&format=js&index=0&mkt=pt-BR")
+    JSON=$(curl -sL "https://bing.biturl.top/?resolution=1920&format=json&index=0&mkt=pt-BR")
     URL=$(echo "$JSON"       | grep -oP '"url"\s*:\s*"\K[^"]+' 2>/dev/null)
     IMG_TITLE=$(echo "$JSON" | grep -oP '"copyright"\s*:\s*"\K[^"]+' 2>/dev/null)
 
     if [ -n "$URL" ]; then
         curl -sL "$URL" -o "$TARGET"
         BING_LAST_DATE="$TODAY"
+    else
+        apply_random_local "Bing"
+        return
     fi
-    MESSAGE="${MSG_FETCH_SOURCE_BING:-Novo wallpaper baixado via Bing}"
+    MESSAGE="${MSG_FETCH_SOURCE_BING:-New wallpaper downloaded via Bing}"
 }
 
 fetch_unsplash() {
@@ -92,7 +95,7 @@ fetch_unsplash() {
     # Unsplash (picsum) returns a different random image on every request — always download.
     curl -sL "https://picsum.photos/1920/1080.jpg" -o "$TARGET"
     IMG_TITLE="Unsplash / picsum.photos"
-    MESSAGE="${MSG_FETCH_SOURCE_UNSPLASH:-Novo wallpaper baixado via Unsplash}"
+    MESSAGE="${MSG_FETCH_SOURCE_UNSPLASH:-New wallpaper downloaded via Unsplash}"
 }
 
 fetch_apod() {
@@ -114,7 +117,7 @@ fetch_apod() {
         # Detect API errors (rate limit, invalid key) early to avoid burning quota.
         if echo "$JSON" | grep -q '"error"'; then
             ERR_MSG=$(echo "$JSON" | grep -oP '"message"\s*:\s*"\K[^"]+' 2>/dev/null)
-            notify-send "WayLume ⚠️" "$(printf "${MSG_FETCH_APOD_ERROR:-APOD API: %s\nUsando galeria local.\nDica: registre uma API key gratuita em api.nasa.gov}" "$ERR_MSG")"
+            notify-send "WayLume ⚠️" "$(printf "${MSG_FETCH_APOD_ERROR:-APOD API: %s\nUsing local gallery.\nTip: register a free API key at api.nasa.gov}" "$ERR_MSG")"
             apply_random_local "APOD"
             # Mark today so the timer doesn't hammer the API again until tomorrow.
             APOD_LAST_DATE="$TODAY"
@@ -136,7 +139,7 @@ fetch_apod() {
         curl -sL "$APOD_URL" -o "$TARGET"
         APOD_LAST_DATE="$TODAY"
     fi
-    MESSAGE="${MSG_FETCH_SOURCE_APOD:-Novo wallpaper baixado via APOD}"
+    MESSAGE="${MSG_FETCH_SOURCE_APOD:-New wallpaper downloaded via APOD}"
 }
 
 # ============================================================
@@ -150,7 +153,7 @@ validate_image() {
     local MIME
     MIME=$(file --mime-type -b "$TARGET")
     if [[ "$MIME" != image/* ]]; then
-        notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME:-⚠️ Download inválido ignorado (%s). Tente novamente.}" "$MIME")"
+        notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME:-⚠️ Invalid download ignored (%s). Please try again.}" "$MIME")"
         rm -f "$TARGET"
         exit 0   # handled — bad download removed, timer will retry later
     fi
@@ -177,17 +180,17 @@ process_image() {
 
     if [ -n "$IMG_TITLE" ]; then
         local DISPLAY_TITLE="${IMG_TITLE:0:120}"
-        # Resize → crop → composite bar → título (NE) → brand text (NW): um pass só.
+        # Resize → crop → composite bar → título (NE) → brand text (NW): just one pass
         convert "$TARGET" \
             -resize "${SCREEN_W}x${SCREEN_H}^" \
             -gravity Center \
             -extent "${SCREEN_W}x${SCREEN_H}" \
             \( -size "${SCREEN_W}x${BAR}" xc:"rgba(0,0,0,0.65)" \) \
             -gravity North -composite \
-            -font DejaVu-Sans-Bold -pointsize 16 \
-            -fill white -gravity NorthWest -annotate +14+17 "WayLume" \
+            -font DejaVu-Sans-Bold -pointsize 15 \
+            -fill white -gravity NorthWest -annotate +14+11 "WayLume" \
             -font DejaVu-Sans -pointsize 13 \
-            -fill "#bbbbbb" -gravity NorthWest -annotate +14+35 "is.gd/48OrTP" \
+            -fill "#bbbbbb" -gravity NorthWest -annotate +14+29 "is.gd/48OrTP" \
             -font DejaVu-Sans -pointsize 24 \
             -fill white -gravity NorthEast -annotate +20+14 "  ${DISPLAY_TITLE}  " \
             "$TARGET" 2>/dev/null

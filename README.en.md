@@ -46,22 +46,82 @@ To install directly without the interactive prompt:
 ./waylume.sh --install
 ```
 
-## ⚙️ Configuration Menu
+## 📖 User Manual
 
-When opening WayLume from the system menu:
+### Main Menu
 
-| Option | Description |
+```
+┌─ WayLume - Menu ────────────────────────────┓
+│ Wallpaper Manager for GNOME                │
+│ Gallery: ~/Pictures/WayLume · Interval: 2h  │
+│                                             │
+│  ⬇️  1. Download new image now              │
+│  🎲  2. Random image from gallery            │
+│  ➡️  3. Next image in gallery               │
+│  ⬅️  4. Previous image in gallery           │
+│  ⚙️  5. Settings                            │
+│  🔧  6. Maintenance                         │
+│  🚪  7. Exit                                │
+│                               [Close] [OK] │
+└───────────────────────────────────────────┗
+```
+
+| Option | What it does |
 | --- | --- |
-| 📂 Gallery folder | Where photos will be saved |
-| ⏱️ Update interval | Systemd Timer interval (minutes or hours) |
-| 🌍 Image sources | Bing, Unsplash and/or APOD |
-| 🔑 NASA API Key | Key for the APOD API (default: `DEMO_KEY`) |
-| 🚀 Install/Update Scripts | Applies settings and restarts the timer |
-| 🎲 Change image NOW | Immediately rotates through the local gallery |
-| 🧹 Clean gallery | Removes corrupted or invalid files |
-| 🗑️ Remove WayLume | Full uninstall (gallery preserved) |
+| ⬇️ Download new image now | Downloads a new image from the internet and sets it as wallpaper |
+| 🎲 Random image from gallery | Picks a random image already in the local gallery (instant, no download) |
+| ➡️ Next image in gallery | Advances through the gallery (chronological order, circular) |
+| ⬅️ Previous image in gallery | Goes back through the gallery (chronological order, circular) |
+| ⚙️ Settings | Opens the settings submenu |
+| 🔧 Maintenance | Opens the maintenance submenu |
+| 🚪 Exit | Closes WayLume |
 
-> **NASA APOD API Key:** The `DEMO_KEY` works but has a 30 req/hour limit. For continuous use, register a free key at [api.nasa.gov](https://api.nasa.gov) (limit: 1,000 req/day) and enter it in the **🔑 NASA API Key** menu.
+---
+
+### Submenu: Settings
+
+```
+┌─ WayLume — Settings ───────────────────────┓
+│ Change the desired options. On exit, you   │
+│ will be able to apply the changes.         │
+│                                             │
+│  📂  1. Gallery folder                      │
+│  ⏱️  2. Update interval                     │
+│  🌍  3. Image sources                       │
+│  🔑  4. NASA API Key                        │
+│  🚪  5. Exit                                │
+│                               [Close] [OK] │
+└───────────────────────────────────────────┗
+```
+
+| Option | What it configures |
+| --- | --- |
+| 📂 Gallery folder | Directory where photos are stored |
+| ⏱️ Update interval | How often the timer changes the wallpaper (minutes or hours) |
+| 🌍 Image sources | **Bing** (photo of the day), **Unsplash** (random), and/or **APOD** (NASA) |
+| 🔑 NASA API Key | Key for the APOD API (default: `DEMO_KEY`) |
+
+> **Settings flow:** Changes stay in memory until you exit the submenu. On exit (item 5 or Close button), if there are pending changes, WayLume asks whether to apply them. On confirmation, it saves and restarts the timer automatically.
+
+> **NASA APOD tip:** The `DEMO_KEY` has a 30 req/hour limit. For continuous use, register a free key at [api.nasa.gov](https://api.nasa.gov) (limit: 1,000 req/day).
+
+---
+
+### Submenu: Maintenance
+
+```
+┌─ WayLume — Maintenance ─────────────────────┓
+│                                             │
+│  🧹  1. Clean gallery                       │
+│  🗑️  2. Remove WayLume                     │
+│                               [Close] [OK] │
+└───────────────────────────────────────────┗
+```
+
+| Option | What it does |
+| --- | --- |
+| 🧹 Clean gallery | Removes corrupted files or files with an invalid MIME type from the gallery |
+| 🗑️ Remove WayLume | Completely uninstalls WayLume. Your photo gallery is **not** deleted |
 
 ## 📁 Installed Files
 
@@ -80,68 +140,7 @@ Following the XDG standard, everything goes into the user's home:
 
 ## 🛠️ For Developers
 
-The `waylume.sh` is a **generated artifact** — do not edit it directly. Sources are in `src/`:
-
-```text
-src/
-  fetcher.sh    ← Systemd worker (waylume-fetch): download and apply logic
-  main.sh       ← installer and GUI: menus, config, service deployment
-  waylume.svg   ← application icon (editable with Inkscape or by hand)
-  i18n/
-    pt.sh       ← Brazilian Portuguese strings
-    en.sh       ← English strings
-build.sh        ← combines the files and generates waylume.sh
-waylume.sh      ← build output (distributed file)
-```
-
-### Development Cycle
-
-```bash
-# 1. Edit sources in src/
-nano src/fetcher.sh
-
-# 2. Test the fetcher in isolation (no install needed)
-bash src/fetcher.sh
-
-# 3. Rebuild and reinstall
-./build.sh && ./waylume.sh --install
-```
-
-``build.sh`` embeds `src/fetcher.sh`, `src/waylume.svg`, `src/i18n/pt.sh` and `src/i18n/en.sh` into their respective placeholders in `src/main.sh`, producing the self-contained `waylume.sh`. Requires Python 3 (present on any modern distro).
-
-| Placeholder in `src/main.sh` | Replaced by |
-| --- | --- |
-| `##FETCHER_CONTENT##` | `src/fetcher.sh` |
-| `##ICON_CONTENT##` | `src/waylume.svg` |
-| `##I18N_PT##` | `src/i18n/pt.sh` |
-| `##I18N_EN##` | `src/i18n/en.sh` |
-
-The `##I18N_*##` placeholders live inside heredocs in `install_or_update`. When `waylume.sh --install` runs, those heredocs are written to:
-
-```text
-~/.config/waylume/i18n/
-  pt.sh
-  en.sh
-```
-
-At runtime, `main.sh` and `fetcher.sh` detect the language from `$LANG` and source the matching bundle. Fallback: `en`.
-
-### Adding a new language
-
-```bash
-# 1. Copy an existing bundle and translate
-cp src/i18n/en.sh src/i18n/de.sh
-nano src/i18n/de.sh
-
-# 2. Add the heredoc in install_or_update (src/main.sh)
-# cat << 'WL_I18N_DE' > "$CONFIG_DIR/i18n/de.sh"
-# ##I18N_DE##
-# WL_I18N_DE
-
-# 3. Update build.sh with the new I18N_DE variable
-# 4. Rebuild and reinstall
-./build.sh && ./waylume.sh --install
-```
+See [DEVELOPER.md](DEVELOPER.md) for the full technical documentation: architecture, build system, i18n, guides for adding new sources and languages, and the architecture decision log.
 
 ## 📄 License
 
