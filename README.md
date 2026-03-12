@@ -10,3 +10,7 @@
 ---
 
 📄 **Licença / License:** [GNU General Public License v3.0 (GPLv3)](LICENSE.md)
+
+---
+
+Este software usou Claude Sonnet 4.6 como um programador parceiro / This software used Claude Sonnet 4.6 as a pair programmer.
