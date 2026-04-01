@@ -1,0 +1,4 @@
+# Patch para p3/libs/lang/pt.json
+# Adicionar antes da última linha (fechamento do JSON):
+
+  "waylume_desc": "Gerenciador minimalista de wallpapers para GNOME/Wayland. Define automaticamente wallpapers diários do Bing, Unsplash, NASA APOD e Wikimedia POTD."
