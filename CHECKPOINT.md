@@ -1,4 +1,4 @@
-# CHECKPOINT — Session 2026-03-11
+# CHECKPOINT — Session 2026-04-01
 
 > Read this file at the start of each session to recover development context.
 
@@ -8,16 +8,15 @@
 
 - **Repo:** github.com/andrecavalcantebr/waylume
 - **Branch:** main
-- **Latest commit:** `5238bed` — (session work not yet committed — see "Next session agenda")
+- **Latest commit:** `1718a23` — chore: linuxtoys-pr — symlink waylume.svg to src/waylume.svg
 - **Git log:**
 
   ```text
-  5238bed  (HEAD -> main, origin/main) docs: translate CHECKPOINT.md fully to English
+  1718a23  (HEAD -> main, origin/main) chore: linuxtoys-pr — symlink waylume.svg to src/waylume.svg
+  889737f  feat: build.sh --install flag + GNOME Dash pin on first install + waylume --version (v1.2.0)
+  78f987b  feat: add Wikimedia POTD source + Unsplash real author metadata (v1.1.0)
+  5238bed  docs: translate CHECKPOINT.md fully to English
   fbbd706  chore: update CHECKPOINT to session 06/03/2026
-  e7afc24  chore: fix all markdown lint issues across project files
-  c9d7a7a  docs: document i18n build embedding and runtime extraction in developer sections
-  b41647e  feat: i18n, brand overlay, bilingual docs, and locale fixes
-  31a284e  chore: adicionar CHECKPOINT da sessão 04/03/2026
   ```
 
 ---
@@ -27,14 +26,21 @@
 ```text
 waylume/
   src/
-    main.sh       (626 lines) — installer and GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
-    fetcher.sh    (240 lines) — systemd worker (waylume-fetch); standalone-testable with: bash src/fetcher.sh
+    main.sh       (662 lines) — installer and GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
+    fetcher.sh    (307 lines) — systemd worker (waylume-fetch); standalone-testable with: bash src/fetcher.sh
     waylume.svg   ( 22 lines) — application SVG icon
     i18n/
-      pt.sh       (116 lines) — all strings in Brazilian Portuguese
-      en.sh       (116 lines) — all strings in English
-  build.sh        ( 46 lines) — combines the above files → waylume.sh
-  waylume.sh      (1120 lines) — GENERATED ARTIFACT; do not edit directly
+      pt.sh       (118 lines) — all strings in Brazilian Portuguese
+      en.sh       (118 lines) — all strings in English
+  build.sh        ( 50 lines) — combines the above files → waylume.sh; supports --install flag
+  waylume.sh      (1227 lines) — GENERATED ARTIFACT; do not edit directly
+  linuxtoys-pr/                — material for the LinuxToys PR (see below)
+    p3/scripts/utils/
+      waylume.sh               — LinuxToys installer script (nocontainer)
+      waylume.svg              — symlink → src/waylume.svg
+    p3/libs/lang/
+      en.json.patch            — waylume_desc to add to LinuxToys en.json
+      pt.json.patch            — waylume_desc to add to LinuxToys pt.json
   DEVELOPER.md               — technical reference for contributors
   README.md                  — language hub (links → README.pt.md and README.en.md)
   README.pt.md               — user documentation in Portuguese
@@ -50,7 +56,7 @@ waylume/
 After any change:
 
 ```bash
-./build.sh && ./waylume.sh --install
+./build.sh --install
 ```
 
 ---
@@ -186,12 +192,14 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 
 ### Fetcher (src/fetcher.sh)
 
-- **3 sources:** Bing (daily photo), Unsplash (random), APOD (NASA)
-- **Daily cache:** APOD and Bing download only once per day; subsequent timer runs rotate from the local gallery (~0.06s, no network)
-- **Persisted state:** `~/.config/waylume/waylume.state` (`APOD_LAST_DATE`, `BING_LAST_DATE`)
+- **4 sources:** Bing (daily), Unsplash (random + real author via Picsum-ID), APOD (NASA), Wikimedia POTD
+- **Daily cache:** Bing, APOD, Wikimedia download only once per day; subsequent timer runs rotate from local gallery
+- **Persisted state:** `~/.config/waylume/waylume.state` (`APOD_LAST_DATE`, `BING_LAST_DATE`, `WIKIMEDIA_LAST_DATE`)
+- **Unsplash metadata:** `curl -D` captures `Picsum-ID` header → `/id/{id}/info` → real author name in title
+- **Wikimedia POTD:** 2-step API: Template:Potd/{date} → filename → imageinfo (1920px thumburl). Python3 decodes `\uXXXX` Unicode escapes in filename before `--data-urlencode`
 - **API error handling:** rate limit / invalid key → notifies user + uses local gallery + marks date (no loop)
 - **Title overlay:** ImageMagick via `-composite` (JPEG has no alpha channel)
-- **Brand strip (NorthWest):** plain text overlay: `WayLume` (DejaVu-Sans-Bold 16pt white +14+17) + `is.gd/48OrTP` (DejaVu-Sans 13pt #bbbbbb +14+35). No external assets.
+- **Brand strip (NorthWest):** plain text: `WayLume` (DejaVu-Sans-Bold 15pt white +14+11) + `is.gd/48OrTP` (DejaVu-Sans 13pt #bbbbbb +14+29)
 - **APOD:** uses `url` (960px) instead of `hdurl` (4K) — ~10x faster
 - **Bing fix (2026-03-11):** API changed `format=js` → `format=json`; added fallback to `apply_random_local` when URL is empty
 
@@ -199,6 +207,8 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 
 | Session | Bug | Fix |
 | --- | --- | --- |
+| 2026-04-01 | Wikimedia: `\uXXXX` in filename → `--data-urlencode` sent literal `%5Cu00ed` → empty `thumburl` | Python3 decode before Step 2 curl call |
+| 2026-04-01 | `unpin_from_favorites` missing closing `}` → premature EOF syntax error | Fixed targeted replacement |
 | 2026-03-11 | Bing: `format=js` rejected by API → empty URL → silent failure | Changed to `format=json`; added fallback to local gallery |
 | earlier | `yad_info/error/question` recursive → segfault | Rewrote as non-recursive wrappers |
 | earlier | `SOURCES` saved with literal `\n` → `case` never matched | Strip whitespace from `SOURCE_ARRAY` elements |
@@ -213,56 +223,97 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 # ~/.config/waylume/waylume.conf
 DEST_DIR="/home/andre/Imagens/WayLume"
 INTERVAL="3min"
-SOURCES="Bing,Unsplash,APOD"
-APOD_API_KEY="DEMO_KEY
+SOURCES="Bing,Unsplash,APOD,Wikimedia"
+APOD_API_KEY="DEMO_KEY"
 ```
 
 > ⚠️ For publishing/testing on another machine, use `DEMO_KEY` (limit: 30 req/hour).
 
 ---
 
+## LinuxToys integration
+
+- **PR:** https://github.com/psygreg/linuxtoys/pull/399 (open, awaiting review)
+- **Fork:** https://github.com/andrecavalcantebr/linuxtoys → branch `feat/add-waylume`
+- **Local clone:** `/home/andre/code/linuxtoys`
+- **Files added to linuxtoys:**
+  - `p3/scripts/utils/waylume.sh` — `# nocontainer` script; runs `curl .../waylume.sh | bash -s -- --install`
+  - `p3/scripts/utils/waylume.svg` — icon copy
+  - `p3/libs/lang/en.json` + `pt.json` — `waylume_desc` translation key added
+- **Auto-update mechanism:** the LinuxToys script points to `raw.githubusercontent.com/andrecavalcantebr/waylume/main/waylume.sh`. Every `./build.sh && git push` on the waylume repo automatically updates what LinuxToys installs — no changes to the PR needed.
+- **PR material backup:** `linuxtoys-pr/` in this repo (`waylume.svg` is a symlink to `src/waylume.svg`)
+
+---
+
+## Critical analysis (session 2026-04-01)
+
+### Usability — issues to address in future versions
+
+- **No thumbnail in menu** — user doesn't see the current wallpaper, only filename via `notify-send`
+- **Overlay always on** — no option to disable the title banner; hardcoded in `process_image`
+- **Brand URL in banner** (`is.gd/48OrTP`) — looks like spam, user doesn't know where it points
+- **APOD low resolution** — uses `url` (~960px) for speed, but `hdurl` (4K) is never offered
+- **No gallery size limit** — disk fills over time; no auto-cleanup of oldest files
+- **No timer pause/resume** — must uninstall/reinstall to stop; no toggle
+- **Multiple monitors** — `process_image` uses only `head -1` monitor from `xrandr`
+- **xrandr fallback** — if `xrandr` fails (pure Wayland without XWayland), `process_image` exits silently with no resize
+
+### Security — issues to address in future versions
+
+- **`source "$CONF_FILE"`** in `fetcher.sh` — arbitrary code execution if the config file is tampered with; should parse key=value line by line instead
+- **`source "$STATE_FILE"`** — same problem with `waylume.state`
+- **`grep -oP` JSON parsing** — not real parsing; malicious API responses could inject unexpected output
+- **`IMG_TITLE` in `convert -annotate`** — titles with special chars (`'`, `"`) could break the ImageMagick command; truncation to 120 chars mitigates but doesn't eliminate
+- **`"fetch_${SELECTED_SOURCE,,}"`** — dynamic function dispatch depends on `SOURCES` from the conf file (already a code execution vector via `source`); secondary risk
+
+### Functionality — gaps for future versions
+
+- Option to disable/configure the title overlay and brand strip
+- Gallery size limit (keep last N images)
+- Multi-monitor support (detect all connected resolutions)
+- `hdurl` option for APOD (opt-in for 4K)
+- Timer pause/resume without uninstalling
+- In-menu thumbnail preview of current wallpaper (yad supports `--image`)
+
+---
+
 ## Next session agenda
 
-### 1. Commit and push this session's work
+### 1. Security: replace `source` with safe config parsing
 
-Suggested commit message:
+Replace `source "$CONF_FILE"` and `source "$STATE_FILE"` in `fetcher.sh` with a `read_config()` function that parses `key=value` lines safely — no arbitrary code execution.
 
-```
-fix: bing source format=js → format=json + fallback on empty URL
-feat: menu refactor — submenus, gallery nav (next/prev/random), dirty-flag config flow
-docs: CHECKPOINT, DEVELOPER.md, README user rewrite
-```
+### 2. Usability: overlay toggle option
 
-### 2. Add screenshots to repository
+Add a config key `SHOW_OVERLAY=true/false` to `waylume.conf` and honour it in `process_image`. Expose as a toggle in the Settings submenu.
 
-Add actual screenshots to `docs/screens/` for the README mini-manual:
+### 3. Gallery size limit
 
-- `docs/screens/menu-principal.png`
-- `docs/screens/submenu-configuracoes.png`
-- `docs/screens/submenu-manutencao.png`
-- `docs/screens/wallpaper-exemplo.png`
+Add `GALLERY_MAX_FILES=30` (or size-based) to config. After each download, prune oldest files beyond the limit.
 
-### 3. Source modularisation — when a 4th source is added
+### 4. Source modularisation into `src/sources/`
 
-**Approach:** each source becomes an independent file under `src/sources/`.
+`fetcher.sh` is at 307 lines with 4 sources. Modularise:
 
 ```text
 src/
   sources/
-    apod.sh       ← testable with: bash src/sources/apod.sh
     bing.sh
     unsplash.sh
-  fetcher.sh      ← thin orchestrator (~50 lines): pick → source → validate → overlay → apply
+    apod.sh
+    wikimedia.sh
+  fetcher.sh   ← thin orchestrator (~60 lines)
 ```
 
-**Interface convention (TBD):**
+Each source file: input `$TARGET_PATH`, output `$IMG_TITLE` + `$MESSAGE` + image written.
 
-- Input: `$TARGET_PATH` (where to save), variables from `waylume.conf`
-- Output: image file written + `$IMG_TITLE` + `$MESSAGE`
-- Date cache: each source manages its own entry in `waylume.state`
+### 5. Screenshots
 
-**Implementation trigger:** when a 4th source is added.
-With only 3 sources, the setup overhead is not yet justified.
+Add actual screenshots to `assets/en/` and `assets/pt/` for the README mini-manual:
+
+- `screenshot-menu-main.png`
+- `screenshot-menu-settings.png`
+- `screenshot-menu-maintenance.png`
 
 ---
 
