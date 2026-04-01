@@ -28,6 +28,7 @@ TODAY=$(date +%Y-%m-%d)
 # Read persisted last-download dates per source
 APOD_LAST_DATE=""
 BING_LAST_DATE=""
+WIKIMEDIA_LAST_DATE=""
 [ -f "$STATE_FILE" ] && source "$STATE_FILE" 2>/dev/null
 
 # Shared output variables set by each fetch_* function
@@ -55,6 +56,7 @@ save_state() {
     {
         echo "APOD_LAST_DATE=\"$APOD_LAST_DATE\""
         echo "BING_LAST_DATE=\"$BING_LAST_DATE\""
+        echo "WIKIMEDIA_LAST_DATE=\"$WIKIMEDIA_LAST_DATE\""
     } > "$STATE_FILE"
 }
 
@@ -91,10 +93,25 @@ fetch_bing() {
 
 fetch_unsplash() {
     local TARGET="$1"
+    local HDR_TMP="/tmp/wl_hdr_$$"
+    local PICSUM_ID AUTHOR INFO_JSON
 
     # Unsplash (picsum) returns a different random image on every request — always download.
-    curl -sL "https://picsum.photos/1920/1080.jpg" -o "$TARGET"
-    IMG_TITLE="Unsplash / picsum.photos"
+    # Capture response headers alongside the image to extract Picsum-ID.
+    curl -sL "https://picsum.photos/1920/1080.jpg" -D "$HDR_TMP" -o "$TARGET"
+
+    # Extract Picsum-ID from response header (digits only, guards against injection).
+    PICSUM_ID=$(grep -i '^picsum-id:' "$HDR_TMP" 2>/dev/null | grep -oP '\d+' | tr -d '[:space:]')
+    rm -f "$HDR_TMP"
+
+    # Fetch author metadata if we got a valid ID; fall back to generic title on any failure.
+    if [ -n "$PICSUM_ID" ]; then
+        INFO_JSON=$(curl -sL "https://picsum.photos/id/${PICSUM_ID}/info")
+        AUTHOR=$(echo "$INFO_JSON" | grep -oP '"author"\s*:\s*"\K[^"]+' 2>/dev/null)
+        [ -n "$AUTHOR" ] && IMG_TITLE="Photo by ${AUTHOR} (picsum #${PICSUM_ID})"
+    fi
+    [ -z "$IMG_TITLE" ] && IMG_TITLE="Unsplash / picsum.photos"
+
     MESSAGE="${MSG_FETCH_SOURCE_UNSPLASH:-New wallpaper downloaded via Unsplash}"
 }
 
@@ -140,6 +157,56 @@ fetch_apod() {
         APOD_LAST_DATE="$TODAY"
     fi
     MESSAGE="${MSG_FETCH_SOURCE_APOD:-New wallpaper downloaded via APOD}"
+}
+
+fetch_wikimedia() {
+    local TARGET="$1"
+
+    # Wikimedia POTD changes once a day — rotate from gallery if already downloaded today.
+    if [ "$WIKIMEDIA_LAST_DATE" = "$TODAY" ]; then
+        apply_random_local "Wikimedia"
+        return
+    fi
+
+    local FILENAME JSON1 JSON2 IMG_URL RAW_TITLE
+
+    # Step 1: get POTD filename from the daily template
+    JSON1=$(curl -sL \
+        "https://commons.wikimedia.org/w/api.php?action=query&prop=images&titles=Template:Potd/${TODAY}&format=json")
+    FILENAME=$(echo "$JSON1" | grep -oP '"title"\s*:\s*"\KFile:[^"]+' | head -1)
+
+    if [ -z "$FILENAME" ]; then
+        apply_random_local "Wikimedia"
+        return
+    fi
+
+    # Decode JSON Unicode escapes in filename (e.g. \u00ed → í) so curl can URL-encode correctly.
+    # python3 is already a project dependency (used by build.sh).
+    FILENAME=$(python3 -c "
+import sys, re
+t = sys.stdin.read().rstrip('\n')
+print(re.sub(r'\\\\u([0-9a-fA-F]{4})', lambda m: chr(int(m.group(1), 16)), t))
+" <<< "$FILENAME" 2>/dev/null)
+
+    # Step 2: get 1920px thumbnail URL (filename is URL-encoded by curl --data-urlencode)
+    JSON2=$(curl -sGLs "https://commons.wikimedia.org/w/api.php" \
+        --data-urlencode "titles=$FILENAME" \
+        --data "action=query&prop=imageinfo&iiprop=url&iiurlwidth=1920&format=json")
+    IMG_URL=$(echo "$JSON2" | grep -oP '"thumburl"\s*:\s*"\K[^"]+' | head -1)
+
+    if [ -z "$IMG_URL" ]; then
+        apply_random_local "Wikimedia"
+        return
+    fi
+
+    curl -sL "$IMG_URL" -o "$TARGET"
+    WIKIMEDIA_LAST_DATE="$TODAY"
+
+    # Title: strip "File:" prefix and file extension from the already-decoded filename.
+    IMG_TITLE=$(echo "$FILENAME" | sed 's|^File:||; s|\.[^.]*$||')
+    [ -z "$IMG_TITLE" ] && IMG_TITLE="Wikimedia Picture of the Day"
+
+    MESSAGE="${MSG_FETCH_SOURCE_WIKIMEDIA:-New wallpaper downloaded via Wikimedia}"
 }
 
 # ============================================================

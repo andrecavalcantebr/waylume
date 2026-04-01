@@ -1,6 +1,7 @@
 #!/bin/bash
 # ====================================================
 # WayLume - Minimalist Wayland Wallpaper Manager
+# Version: 1.1.0
 # ====================================================
 
 # --- Paths and global variables ---
@@ -345,18 +346,19 @@ set_update_interval() {
 
 # GUI: choose which image sources to use
 set_image_sources() {
-    local BING=FALSE UNSPLASH=FALSE APOD=FALSE
-    [[ "$SOURCES" == *"Bing"* ]]     && BING=TRUE
-    [[ "$SOURCES" == *"Unsplash"* ]] && UNSPLASH=TRUE
-    [[ "$SOURCES" == *"APOD"* ]]     && APOD=TRUE
+    local BING=FALSE UNSPLASH=FALSE APOD=FALSE WIKIMEDIA=FALSE
+    [[ "$SOURCES" == *"Bing"* ]]       && BING=TRUE
+    [[ "$SOURCES" == *"Unsplash"* ]]   && UNSPLASH=TRUE
+    [[ "$SOURCES" == *"APOD"* ]]       && APOD=TRUE
+    [[ "$SOURCES" == *"Wikimedia"* ]]  && WIKIMEDIA=TRUE
 
     local NEW_SOURCES
     NEW_SOURCES=$(yad "${YAD_BASE[@]}" --list --checklist --title="${TITLE_SOURCES}" \
         --text="${MSG_SOURCES_PICK:-Choose where to download new images from:}" \
         --column="" --column="${COL_SOURCES_NAME:-Source}" \
-        $BING "Bing" $UNSPLASH "Unsplash" $APOD "APOD" \
+        $BING "Bing" $UNSPLASH "Unsplash" $APOD "APOD" $WIKIMEDIA "Wikimedia" \
         --print-column=2 --separator="," \
-        --width=280 --height=220 --no-headers \
+        --width=280 --height=255 --no-headers \
         "${YAD_BTN_OKC[@]}")
     # Strip trailing comma and any whitespace/newlines yad may inject between items
     NEW_SOURCES=$(echo "$NEW_SOURCES" | tr -d '[:space:]' | sed 's/,$//')
