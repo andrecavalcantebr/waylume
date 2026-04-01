@@ -1,7 +1,11 @@
 #!/bin/bash
 # build.sh — Combines src/main.sh + src/fetcher.sh → waylume.sh
-# Usage: ./build.sh
+# Usage: ./build.sh [--install]
+#   --install   Run ./waylume.sh --install after a successful build
 set -e
+
+INSTALL=false
+[ "${1:-}" = "--install" ] && INSTALL=true
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MAIN="$SCRIPT_DIR/src/main.sh"
@@ -64,3 +68,8 @@ if command -v shellcheck &>/dev/null; then
 fi
 
 echo "✅ Build concluído: waylume.sh"
+
+if [ "$INSTALL" = true ]; then
+    echo ""
+    "$SCRIPT_DIR/waylume.sh" --install
+fi

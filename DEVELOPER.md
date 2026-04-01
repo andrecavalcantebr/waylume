@@ -35,7 +35,7 @@ waylume/
 After any change:
 
 ```bash
-./build.sh && ./waylume.sh --install
+./build.sh --install
 ```
 
 ---
@@ -244,7 +244,7 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_APOD_ERROR}" "$ERR_MSG")"
    ```
 
 3. In `build.sh`, add `I18N_DE="$SCRIPT_DIR/src/i18n/de.sh"` and pass it to Python; add `'##I18N_DE##'` to the assert list and substitution chain
-4. `./build.sh && ./waylume.sh --install`
+4. `./build.sh --install`
 
 ---
 
@@ -274,7 +274,7 @@ SELECTED_SOURCE="${SOURCE_ARRAY[$RANDOM % ${#SOURCE_ARRAY[@]}]}"
 1. Add `fetch_newname()` to `src/fetcher.sh` following the interface above
 2. Add `"Newname"` as a checklist option in `set_image_sources()` in `src/main.sh`
 3. Add any new strings to both i18n bundles
-4. `./build.sh && ./waylume.sh --install`
+4. `./build.sh --install`
 
 > **Modularisation note:** When a 4th source is added, consider splitting each into `src/sources/<name>.sh` and making `fetcher.sh` a thin orchestrator. With 3 sources the overhead is not justified.
 

@@ -4,6 +4,8 @@
 # Version: 1.1.0
 # ====================================================
 
+WL_VERSION="1.1.0"
+
 # --- Paths and global variables ---
 CONFIG_DIR="$HOME/.config/waylume"
 BIN_DIR="$HOME/.local/bin"
@@ -263,9 +265,34 @@ EOF
         yad_info --title="WayLume" \
             --text="${MSG_UPDATE_DONE:-Updated successfully!\nScripts and timer have been updated.\nYour settings were preserved.}"
     else
+        # First install: offer to pin WayLume to the GNOME Dash favorites
+        pin_to_favorites
         yad_info --title="WayLume" \
             --text="${MSG_INSTALL_DONE:-Installed successfully!\nOpen WayLume from your system application menu.}"
     fi
+}
+
+# Add waylume.desktop to GNOME Dash favorites (asks user; silent if not GNOME)
+pin_to_favorites() {
+    local CURRENT NEW
+    CURRENT=$(gsettings get org.gnome.shell favorite-apps 2>/dev/null) || return
+    # Already pinned — nothing to do
+    [[ "$CURRENT" == *"waylume.desktop"* ]] && return
+    yad_question --title="WayLume" \
+        --text="${MSG_PIN_FAVORITES:-Pin WayLume to the Dash/taskbar for quick access?}" || return
+    # Insert waylume.desktop before the closing bracket
+    NEW=$(echo "$CURRENT" | sed "s/]$/, 'waylume.desktop']/")
+    gsettings set org.gnome.shell favorite-apps "$NEW" 2>/dev/null || true
+}
+
+# Remove waylume.desktop from GNOME Dash favorites (silent)
+unpin_from_favorites() {
+    local CURRENT NEW
+    CURRENT=$(gsettings get org.gnome.shell favorite-apps 2>/dev/null) || return
+    [[ "$CURRENT" != *"waylume.desktop"* ]] && return
+    # Remove the entry, handling both middle and last position
+    NEW=$(echo "$CURRENT" | sed "s/, 'waylume.desktop'//; s/'waylume.desktop', //; s/'waylume.desktop'//")
+    gsettings set org.gnome.shell favorite-apps "$NEW" 2>/dev/null || true
 }
 
 # Remove all WayLume files from the system (keeps the photo gallery)
@@ -276,6 +303,7 @@ uninstall() {
         systemctl --user disable --now waylume.timer 2>/dev/null
         rm -f "$SYSTEMD_DIR"/waylume.*
         rm -f "$INSTALL_TARGET" "$FETCHER_SCRIPT"
+        unpin_from_favorites
         rm -f "$APP_DIR/waylume.desktop"
         rm -f "$ICON_DIR/waylume.svg"
         rm -rf "$CONFIG_DIR"
@@ -555,11 +583,17 @@ case "${1:-}" in
         fi
         exit 0
         ;;
+    --version|-V)
+        echo "WayLume ${WL_VERSION}"
+        exit 0
+        ;;
     --help|-h)
+        echo "WayLume ${WL_VERSION}"
         echo "Usage: waylume [option]"
         echo "  (no option)   Opens the settings menu (or installs if needed)"
         echo "  --install     Install or update WayLume"
         echo "  --uninstall   Remove WayLume from the system"
+        echo "  --version     Show version"
         echo "  --help        Show this help"
         exit 0
         ;;

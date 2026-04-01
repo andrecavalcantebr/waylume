@@ -74,6 +74,7 @@ TITLE_UPDATE_PROMPT="WayLume Atualização"
 MSG_UPDATE_PROMPT="O WayLume já está instalado.\nDeseja atualizar para a versão desta pasta?\n\nSuas configurações serão preservadas."
 TITLE_INSTALL_PROMPT="WayLume Instalação"
 MSG_INSTALL_PROMPT="O WayLume não está instalado no sistema.\nDeseja instalar agora na sua pasta de usuário (~/.local/bin)?"
+MSG_PIN_FAVORITES="Fixar WayLume na barra de favoritos (Dash) para acesso rápido?"
 
 # ── main menu ─────────────────────────────────────────────────────────────────
 TITLE_MENU="WayLume - Menu"
