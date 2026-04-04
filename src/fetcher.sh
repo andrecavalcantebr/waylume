@@ -36,6 +36,9 @@ _wl_read_keyval() {
 }
 
 _wl_read_keyval "$HOME/.config/waylume/waylume.conf" DEST_DIR INTERVAL SOURCES APOD_API_KEY GALLERY_MAX_FILES
+# Fallback: if conf is missing or DEST_DIR was not set, use the XDG Pictures default.
+# Without this, DEST_DIR="" causes find to scan the service cwd (/), which is dangerous.
+DEST_DIR="${DEST_DIR:-$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")/WayLume}"
 mkdir -p "$DEST_DIR"
 
 # ── i18n: detect language and load strings ────────────────────────────────────
@@ -45,6 +48,11 @@ _wl_lang="${_wl_lang%%.*}"; _wl_lang="${_wl_lang%%_*}"; _wl_lang="${_wl_lang,,}"
 source "$HOME/.config/waylume/i18n/${_wl_lang}.sh" 2>/dev/null \
     || source "$HOME/.config/waylume/i18n/en.sh" 2>/dev/null || true
 unset _wl_lang
+
+# Derive Bing market code from system locale (e.g. pt_BR.UTF-8 → pt-BR, en_US → en-US).
+# Falls back to en-US for bare/exotic locales (C, POSIX, etc.).
+WL_MKT=$(printf '%s' "${LANG:-en_US}" | grep -oP '^[a-z]{2}_[A-Z]{2}' | tr '_' '-')
+WL_MKT="${WL_MKT:-en-US}"
 
 STATE_FILE="$HOME/.config/waylume/waylume.state"
 TODAY=$(date +%Y-%m-%d)
@@ -76,6 +84,24 @@ apply_random_local() {
     MESSAGE="$(printf "${MSG_FETCH_LOCAL:-🔄 Local gallery (%s already downloaded today)}" "$LABEL")"
 }
 
+# Daily download cap — returns 0 (true) if the source already ran today.
+# In that case it rotates a local image; the caller must return immediately.
+# Usage: _wl_daily_cap "Bing" BING_LAST_DATE && return
+_wl_daily_cap() {
+    [ "${!2}" = "$TODAY" ] || return 1
+    apply_random_local "$1"
+}
+
+# Checks whether the last curl call timed out (exit code 28).
+# On timeout: notifies the user and exits cleanly — wallpaper is left unchanged;
+# the systemd timer will retry on the next scheduled tick.
+# Usage: _wl_check_timeout $?
+_wl_check_timeout() {
+    (( $1 == 28 )) || return 0
+    notify-send "WayLume ⏱️" "${MSG_FETCH_TIMEOUT:-⏱️ Connection timed out. Wallpaper not changed.}"
+    exit 0
+}
+
 # Persist updated download dates to state file.
 save_state() {
     {
@@ -89,6 +115,7 @@ save_state() {
 # Remove oldest gallery files when count exceeds GALLERY_MAX_FILES.
 # GALLERY_MAX_FILES=0 disables pruning. Files are sorted chronologically
 # by filename (waylume_YYYYMMDD_HHMMSS.jpg) so the oldest are always removed first.
+# The currently active wallpaper is never deleted, even if it is the oldest file.
 prune_gallery() {
     local MAX="${GALLERY_MAX_FILES:-60}"
     { [ "$MAX" -gt 0 ] 2>/dev/null; } || return  # 0 or non-numeric = disabled
@@ -97,10 +124,22 @@ prune_gallery() {
         find "$DEST_DIR" -type f \( -iname "*.jpg" -o -iname "*.png" \) -print0 | sort -z
     )
     local COUNT="${#FILES[@]}"
-    if (( COUNT > MAX )); then
-        local TO_DELETE=$(( COUNT - MAX ))
-        rm -f -- "${FILES[@]:0:$TO_DELETE}"
-    fi
+    (( COUNT > MAX )) || return 0
+
+    # Read the active wallpaper path (strip "file://" scheme and surrounding quotes).
+    local ACTIVE
+    ACTIVE=$(gsettings get org.gnome.desktop.background picture-uri 2>/dev/null \
+        | tr -d "'" | sed 's|file://||')
+
+    local TO_DELETE=$(( COUNT - MAX ))
+    local f deleted=0
+    for f in "${FILES[@]}"; do
+        (( deleted >= TO_DELETE )) && break
+        # Skip the active wallpaper — deleting it would cause a black screen on next change.
+        [[ "$f" == "$ACTIVE" ]] && continue
+        rm -f -- "$f"
+        (( deleted++ ))
+    done
 }
 
 # ============================================================
@@ -114,18 +153,18 @@ fetch_bing() {
     local TARGET="$1"
 
     # Bing has one image per day — rotate from gallery if already downloaded today.
-    if [ "$BING_LAST_DATE" = "$TODAY" ]; then
-        apply_random_local "Bing"
-        return
-    fi
+    _wl_daily_cap "Bing" BING_LAST_DATE && return
 
     local JSON URL
-    JSON=$(curl -sL "https://bing.biturl.top/?resolution=1920&format=json&index=0&mkt=pt-BR")
+    JSON=$(curl --connect-timeout 8 --max-time 15 -sL \
+        "https://bing.biturl.top/?resolution=1920&format=json&index=0&mkt=${WL_MKT}")
+    _wl_check_timeout $?
     URL=$(echo "$JSON"       | grep -oP '"url"\s*:\s*"\K[^"]+' 2>/dev/null)
     IMG_TITLE=$(echo "$JSON" | grep -oP '"copyright"\s*:\s*"\K[^"]+' 2>/dev/null)
 
     if [ -n "$URL" ]; then
-        curl -sL "$URL" -o "$TARGET"
+        curl --connect-timeout 10 --max-time 30 -sL "$URL" -o "$TARGET"
+        _wl_check_timeout $?
         BING_LAST_DATE="$TODAY"
     else
         apply_random_local "Bing"
@@ -138,24 +177,29 @@ fetch_unsplash() {
     local TARGET="$1"
 
     # Limit to one new download per day — rotate from gallery if already done today.
-    if [ "$UNSPLASH_LAST_DATE" = "$TODAY" ]; then
-        apply_random_local "Unsplash"
-        return
-    fi
+    _wl_daily_cap "Unsplash" UNSPLASH_LAST_DATE && return
 
-    local HDR_TMP="/tmp/wl_hdr_$$"
+    local HDR_TMP
+    HDR_TMP=$(mktemp /tmp/wl_hdr_XXXXXX)
+    # Ensure the temp file is removed even if _wl_check_timeout triggers exit 0.
+    trap 'rm -f "$HDR_TMP"' EXIT
     local PICSUM_ID AUTHOR INFO_JSON
 
     # Capture response headers alongside the image to extract Picsum-ID.
-    curl -sL "https://picsum.photos/1920/1080.jpg" -D "$HDR_TMP" -o "$TARGET"
+    curl --connect-timeout 10 --max-time 30 -sL \
+        "https://picsum.photos/1920/1080.jpg" -D "$HDR_TMP" -o "$TARGET"
+    _wl_check_timeout $?
 
     # Extract Picsum-ID from response header (digits only, guards against injection).
     PICSUM_ID=$(grep -i '^picsum-id:' "$HDR_TMP" 2>/dev/null | grep -oP '\d+' | tr -d '[:space:]')
     rm -f "$HDR_TMP"
+    trap - EXIT    # manual cleanup done; cancel the trap
 
     # Fetch author metadata if we got a valid ID; fall back to generic title on any failure.
+    # Timeout here is intentionally not fatal: the image was already downloaded successfully.
     if [ -n "$PICSUM_ID" ]; then
-        INFO_JSON=$(curl -sL "https://picsum.photos/id/${PICSUM_ID}/info")
+        INFO_JSON=$(curl --connect-timeout 5 --max-time 8 -sL \
+            "https://picsum.photos/id/${PICSUM_ID}/info")
         AUTHOR=$(echo "$INFO_JSON" | grep -oP '"author"\s*:\s*"\K[^"]+' 2>/dev/null)
         [ -n "$AUTHOR" ] && IMG_TITLE="Photo by ${AUTHOR} (picsum #${PICSUM_ID})"
     fi
@@ -169,17 +213,16 @@ fetch_apod() {
     local TARGET="$1"
 
     # APOD has one image per day — rotate from gallery if already downloaded today.
-    if [ "$APOD_LAST_DATE" = "$TODAY" ]; then
-        apply_random_local "APOD"
-        return
-    fi
+    _wl_daily_cap "APOD" APOD_LAST_DATE && return
 
     local APOD_URL="" JSON MEDIA_TYPE ERR_MSG APOD_DATE
 
     # Try up to 8 days back in case today's APOD is a video or not yet published.
     for DAYS_AGO in 0 1 2 3 4 5 6 7; do
         APOD_DATE=$(date -d "-${DAYS_AGO} days" +%Y-%m-%d)
-        JSON=$(curl -sL "https://api.nasa.gov/planetary/apod?api_key=${APOD_API_KEY}&date=${APOD_DATE}")
+        JSON=$(curl --connect-timeout 8 --max-time 15 -sL \
+            "https://api.nasa.gov/planetary/apod?api_key=${APOD_API_KEY}&date=${APOD_DATE}")
+        _wl_check_timeout $?
 
         # Detect API errors (rate limit, invalid key) early to avoid burning quota.
         if echo "$JSON" | grep -q '"error"'; then
@@ -203,7 +246,8 @@ fetch_apod() {
     done
 
     if [ -n "$APOD_URL" ]; then
-        curl -sL "$APOD_URL" -o "$TARGET"
+        curl --connect-timeout 10 --max-time 30 -sL "$APOD_URL" -o "$TARGET"
+        _wl_check_timeout $?
         APOD_LAST_DATE="$TODAY"
     fi
     MESSAGE="${MSG_FETCH_SOURCE_APOD:-New wallpaper downloaded via APOD}"
@@ -213,16 +257,14 @@ fetch_wikimedia() {
     local TARGET="$1"
 
     # Wikimedia POTD changes once a day — rotate from gallery if already downloaded today.
-    if [ "$WIKIMEDIA_LAST_DATE" = "$TODAY" ]; then
-        apply_random_local "Wikimedia"
-        return
-    fi
+    _wl_daily_cap "Wikimedia" WIKIMEDIA_LAST_DATE && return
 
     local FILENAME JSON1 JSON2 IMG_URL RAW_TITLE
 
     # Step 1: get POTD filename from the daily template
-    JSON1=$(curl -sL \
+    JSON1=$(curl --connect-timeout 8 --max-time 15 -sL \
         "https://commons.wikimedia.org/w/api.php?action=query&prop=images&titles=Template:Potd/${TODAY}&format=json")
+    _wl_check_timeout $?
     FILENAME=$(echo "$JSON1" | grep -oP '"title"\s*:\s*"\KFile:[^"]+' | head -1)
 
     if [ -z "$FILENAME" ]; then
@@ -239,9 +281,11 @@ print(re.sub(r'\\\\u([0-9a-fA-F]{4})', lambda m: chr(int(m.group(1), 16)), t))
 " <<< "$FILENAME" 2>/dev/null)
 
     # Step 2: get 1920px thumbnail URL (filename is URL-encoded by curl --data-urlencode)
-    JSON2=$(curl -sGLs "https://commons.wikimedia.org/w/api.php" \
+    JSON2=$(curl --connect-timeout 8 --max-time 15 -sGLs \
+        "https://commons.wikimedia.org/w/api.php" \
         --data-urlencode "titles=$FILENAME" \
         --data "action=query&prop=imageinfo&iiprop=url&iiurlwidth=1920&format=json")
+    _wl_check_timeout $?
     IMG_URL=$(echo "$JSON2" | grep -oP '"thumburl"\s*:\s*"\K[^"]+' | head -1)
 
     if [ -z "$IMG_URL" ]; then
@@ -249,7 +293,8 @@ print(re.sub(r'\\\\u([0-9a-fA-F]{4})', lambda m: chr(int(m.group(1), 16)), t))
         return
     fi
 
-    curl -sL "$IMG_URL" -o "$TARGET"
+    curl --connect-timeout 10 --max-time 30 -sL "$IMG_URL" -o "$TARGET"
+    _wl_check_timeout $?
     WIKIMEDIA_LAST_DATE="$TODAY"
 
     # Title: strip "File:" prefix and file extension from the already-decoded filename.
@@ -352,29 +397,34 @@ apply_wallpaper() {
 
 if [ "$1" == "--random" ]; then
     # Mode: rotate a random image already in the local gallery.
+    # Gallery files are already resized and have the overlay applied —
+    # skip save_state, validate_image and process_image to avoid
+    # lossy JPEG re-encoding on every manual rotation.
     apply_random_local "manual"
-else
-    # Mode: download a new image from one of the configured sources.
-    IFS=',' read -r -a SOURCE_ARRAY <<< "$SOURCES"
-    # Trim any stray whitespace/newlines from each source name.
-    for i in "${!SOURCE_ARRAY[@]}"; do
-        SOURCE_ARRAY[$i]=$(echo "${SOURCE_ARRAY[$i]}" | tr -d '[:space:]')
-    done
-    SELECTED_SOURCE="${SOURCE_ARRAY[$RANDOM % ${#SOURCE_ARRAY[@]}]}"
-    TARGET_PATH="$DEST_DIR/waylume_$(date +%Y%m%d_%H%M%S).jpg"
-
-    # Dispatch — only known source names are allowed; unknown values fall back to local gallery.
-    case "${SELECTED_SOURCE,,}" in
-        bing)      fetch_bing      "$TARGET_PATH" ;;
-        unsplash)  fetch_unsplash  "$TARGET_PATH" ;;
-        apod)      fetch_apod      "$TARGET_PATH" ;;
-        wikimedia) fetch_wikimedia "$TARGET_PATH" ;;
-        *)
-            notify-send "WayLume ⚠️" "Unknown source: ${SELECTED_SOURCE}. Using local gallery."
-            apply_random_local "$SELECTED_SOURCE"
-            ;;
-    esac
+    apply_wallpaper "$TARGET_PATH"
+    exit 0
 fi
+
+# Mode: download a new image from one of the configured sources.
+IFS=',' read -r -a SOURCE_ARRAY <<< "$SOURCES"
+# Trim any stray whitespace/newlines from each source name.
+for i in "${!SOURCE_ARRAY[@]}"; do
+    SOURCE_ARRAY[$i]=$(echo "${SOURCE_ARRAY[$i]}" | tr -d '[:space:]')
+done
+SELECTED_SOURCE="${SOURCE_ARRAY[$RANDOM % ${#SOURCE_ARRAY[@]}]}"
+TARGET_PATH="$DEST_DIR/waylume_$(date +%Y%m%d_%H%M%S).jpg"
+
+# Dispatch — only known source names are allowed; unknown values fall back to local gallery.
+case "${SELECTED_SOURCE,,}" in
+    bing)      fetch_bing      "$TARGET_PATH" ;;
+    unsplash)  fetch_unsplash  "$TARGET_PATH" ;;
+    apod)      fetch_apod      "$TARGET_PATH" ;;
+    wikimedia) fetch_wikimedia "$TARGET_PATH" ;;
+    *)
+        notify-send "WayLume ⚠️" "Unknown source: ${SELECTED_SOURCE}. Using local gallery."
+        apply_random_local "$SELECTED_SOURCE"
+        ;;
+esac
 
 save_state
 

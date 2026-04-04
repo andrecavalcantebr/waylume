@@ -1,10 +1,10 @@
 #!/bin/bash
 # ====================================================
 # WayLume - Minimalist Wayland Wallpaper Manager
-# Version: 1.1.0
+# Version: 1.3.0
 # ====================================================
 
-WL_VERSION="1.1.0"
+WL_VERSION="1.3.0"
 
 # --- Paths and global variables ---
 CONFIG_DIR="$HOME/.config/waylume"

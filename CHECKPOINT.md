@@ -8,13 +8,14 @@
 
 - **Repo:** github.com/andrecavalcantebr/waylume
 - **Branch:** main
-- **Latest commit:** `3d33108` — docs: update CHECKPOINT.md for session 2026-04-01 (v1.2.0 + LinuxToys PR + critical analysis)
-- **Uncommitted work (session 2026-04-04):** security fix — `_wl_read_keyval()` replacing `source` in `fetcher.sh`
+- **Latest commit:** see `git log` below
+- **Version:** `1.3.0`
 - **Git log:**
 
   ```text
-  3d33108  (HEAD -> main, origin/main) docs: update CHECKPOINT.md for session 2026-04-01 (v1.2.0 + LinuxToys PR + critical analysis)
-  1718a23  chore: linuxtoys-pr — symlink waylume.svg to src/waylume.svg
+  (HEAD -> main, origin/main) — security+robustness: curl timeouts, DEST_DIR fallback, prune_gallery active-wallpaper guard, mktemp HDR_TMP, WL_MKT from locale, WL_VERSION 1.3.0; refactor _wl_daily_cap + --random pipeline fix
+  f452c65  security: replace source with _wl_read_keyval; add gallery limit and Unsplash daily cap
+  3d33108  docs: update CHECKPOINT.md for session 2026-04-01 (v1.2.0 + LinuxToys PR + critical analysis)
   889737f  feat: build.sh --install flag + GNOME Dash pin on first install + waylume --version (v1.2.0)
   78f987b  feat: add Wikimedia POTD source + Unsplash real author metadata (v1.1.0)
   ```
@@ -214,6 +215,8 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 | 2026-04-04 | `IMG_TITLE` in `convert -annotate` — bare `%` expanded as ImageMagick format specifier; control chars misalign overlay | `${...//%/%%}` + `tr -d \000-\037\177` applied to `DISPLAY_TITLE` in `process_image` |
 | 2026-04-04 | Unsplash downloaded on every timer tick — gallery grew unboundedly | Added `UNSPLASH_LAST_DATE` state; now capped at 1 download/day like other sources |
 | 2026-04-04 | Gallery grew without bound; no auto-cleanup | Added `prune_gallery()` in fetcher + `GALLERY_MAX_FILES` config (default 60); exposed as Settings item |
+| 2026-04-04 | `--random` mode called `validate_image` + `process_image` on already-processed files — JPEG re-encoded (lossy) on every gallery rotation | Early exit: `apply_random_local + apply_wallpaper + exit 0`; pipeline bypassed for `--random` |
+| 2026-04-04 | Daily cap check repeated verbatim (3 lines) in all 4 `fetch_*` functions | Extracted to `_wl_daily_cap()` helper (indirect expansion `${!2}`); each source: `_wl_daily_cap "X" X_LAST_DATE && return` |
 | 2026-04-01 | Wikimedia: `\uXXXX` in filename → `--data-urlencode` sent literal `%5Cu00ed` → empty `thumburl` | Python3 decode before Step 2 curl call |
 | 2026-04-01 | `unpin_from_favorites` missing closing `}` → premature EOF syntax error | Fixed targeted replacement |
 | 2026-03-11 | Bing: `format=js` rejected by API → empty URL → silent failure | Changed to `format=json`; added fallback to local gallery |
@@ -284,15 +287,32 @@ APOD_API_KEY="DEMO_KEY"
 
 ---
 
+## Critical analysis (session 2026-04-04)
+
+| Priority | Issue | Status |
+| --- | --- | --- |
+| 🔴 1 | `--random` mode re-encoded already-processed JPEGs on every gallery rotation (lossy degradation) | **FIXED** — early exit before `process_image` |
+| 🟠 2 | No `--max-time` on any `curl` call — slow server hangs the systemd service indefinitely | **FIXED** — `--connect-timeout 8 --max-time 15` (API), `--connect-timeout 10 --max-time 30` (image); `_wl_check_timeout` notifies + exits clean |
+| 🟠 3 | `DEST_DIR` empty if conf missing → `find ""` → `find .` (scans cwd of service, potentially `/`) | **FIXED** — `DEST_DIR="${DEST_DIR:-$(xdg-user-dir PICTURES)/WayLume}"` fallback after `_wl_read_keyval` |
+| 🟠 4 | `prune_gallery` may delete the active wallpaper → GNOME shows black on next change | **FIXED** — reads active path via `gsettings get picture-uri`; active file skipped in delete loop |
+| 🟡 5 | `HDR_TMP="/tmp/wl_hdr_$$"` — PID-predictable temp file; symlink attack risk | **FIXED** — `mktemp /tmp/wl_hdr_XXXXXX` + `trap 'rm -f "$HDR_TMP"' EXIT`; trap cancelled after manual `rm` |
+| 🟡 6 | `WL_VERSION="1.1.0"` — should be bumped to `1.3.0` | **FIXED** — bumped to `1.3.0` in `src/main.sh` |
+| 🟡 7 | `mkt=pt-BR` hardcoded in Bing URL — non-PT users see captions in Portuguese | **FIXED** — `WL_MKT` derived from `$LANG` (e.g. `pt_BR` → `pt-BR`); fallback `en-US` |
+| 🔵 8 | Daily cap boilerplate (3 lines × 4 sources) → extracted to `_wl_daily_cap()` helper | **FIXED** — `_wl_daily_cap "X" X_LAST_DATE && return` |
+
+---
+
 ## Next session agenda
 
 ### 1. Usability: overlay toggle option
 
 Add a config key `SHOW_OVERLAY=true/false` to `waylume.conf` and honour it in `process_image`. Expose as a toggle in the Settings submenu.
 
-### 3. Source modularisation into `src/sources/`
+### 2. Security / robustness — ✅ all items from 2026-04-04 analysis resolved
 
-`fetcher.sh` is at 331 lines with 4 sources. Modularise:
+### 3. Source modularisation into `src/sources/` (future)
+
+`fetcher.sh` is at 384 lines with 4 sources. Modularise when reaching 5+ sources or external contributors:
 
 ```text
 src/
