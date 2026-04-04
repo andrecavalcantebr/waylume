@@ -340,10 +340,14 @@ Screenshots updated in `assets/en/` and `assets/pt/`:
 
 | Decision | Rationale |
 | --- | --- |
-| `waylume.sh` is a single distributed artifact | Preserves "Unix Way": `curl .../waylume.sh \| bash` works |
+| `waylume.sh` is a single distributed artifact | Preserves "Unix Way": `curl .../waylume.sh \| bash` works; required for LinuxToys `# nocontainer` integration |
 | `src/` holds development sources | Syntax highlighting, shellcheck, standalone testability |
 | `.desktop`, `.service`, `.timer` remain as heredocs in `src/main.sh` | Depend on variables interpolated at deploy time (`$INTERVAL`, `$FETCHER_SCRIPT`) |
-| Do not split `src/main.sh` by menu/feature | Full global-state coupling; no real isolated testability |
+| `src/main.sh` not split yet | Global-state coupling is manageable at 712 lines; split into `src/lib/` warranted at ~900+ lines or first external contributor |
+| `src/fetcher.sh` not split into `src/sources/` yet | 4 sources, 1 maintainer; split warranted at 5+ sources or when contributors ask "where is source X logic?" |
+| `fetch_*` functions follow an implicit API contract | Input: `$TARGET` ($1), `$TODAY`, `$WL_MKT`, `$X_LAST_DATE`; Output: `$IMG_TITLE`, `$MESSAGE`, image at `$TARGET`, `X_LAST_DATE="$TODAY"`; helpers: `_wl_daily_cap`, `_wl_check_timeout`, `apply_random_local` |
+| `build.sh` (bash + inline Python) as build tool | Works; evolve to `Makefile + tools/assemble.py` when modularising sources/lib — `make` is the canonical tool for "rebuild artifact from multiple sources with explicit dependencies" |
+| Future distribution path | v1.x: `build.sh → waylume.sh`; v2.x: `Makefile + waylume.sh + tarball as GitHub release asset`; v3.x+: `Makefile + tarball` as primary if distro packaging needed |
 | i18n via `.sh` files (Option B), not gettext | No external dependencies; compatible with single distributed file |
 | Plain-text brand strip (no assets) | QR codes become illegible compressed in JPEG; SVG icon looks out of place in the overlay |
 | APOD uses `url` (960px) | `hdurl` (4K) caused 30s+ downloads with no perceptible visual gain |
