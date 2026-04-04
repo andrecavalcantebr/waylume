@@ -11,14 +11,14 @@ This document is the technical reference for contributors and maintainers. It co
 ```text
 waylume/
   src/
-    main.sh       (626 lines) — installer + yad GUI + menu logic
-    fetcher.sh    (240 lines) — systemd oneshot worker: download, overlay, apply
+    main.sh       (712 lines) — installer + yad GUI + menu logic
+    fetcher.sh    (383 lines) — systemd oneshot worker: download, overlay, apply
     waylume.svg   ( 22 lines) — SVG application icon
     i18n/
-      pt.sh       (116 lines) — Brazilian Portuguese string bundle
-      en.sh       (116 lines) — English string bundle
-  build.sh        ( 46 lines) — build tool: embeds src/* into waylume.sh via Python 3
-  waylume.sh      (1120 lines) — GENERATED ARTIFACT — never edit directly
+      pt.sh       (123 lines) — Brazilian Portuguese string bundle
+      en.sh       (125 lines) — English string bundle
+  build.sh        ( 50 lines) — build tool: embeds src/* into waylume.sh via Python 3
+  waylume.sh      (1365 lines) — GENERATED ARTIFACT — never edit directly
   DEVELOPER.md    — this file
   CHECKPOINT.md   — session notes and current development context
   README.md       — language hub
@@ -100,14 +100,15 @@ Can also be tested standalone: `bash src/fetcher.sh`
 **Execution flow:**
 
 1. Set environment (`DBUS_SESSION_BUS_ADDRESS`, `XDG_RUNTIME_DIR`, `DISPLAY`)
-2. Source `waylume.conf` and i18n bundle
-3. Read `waylume.state` (persisted download dates)
+2. `_wl_read_keyval()` parses `waylume.conf` (whitelist: `DEST_DIR INTERVAL SOURCES APOD_API_KEY GALLERY_MAX_FILES`); source i18n bundle
+3. `_wl_read_keyval()` parses `waylume.state` (whitelist: `APOD_LAST_DATE BING_LAST_DATE UNSPLASH_LAST_DATE WIKIMEDIA_LAST_DATE`)
 4. If `--random`: call `apply_random_local` and exit
 5. Otherwise: pick a random source from `$SOURCES`, call `fetch_<source>()`
 6. `save_state()` — persist updated dates
-7. `validate_image()` — reject non-image MIME types
-8. `process_image()` — resize, crop, overlay title and brand strip
-9. `apply_wallpaper()` — `gsettings set` + `notify-send`
+7. `prune_gallery()` — remove oldest files if count exceeds `GALLERY_MAX_FILES`
+8. `validate_image()` — reject non-image MIME types
+9. `process_image()` — resize, crop, overlay title and brand strip
+10. `apply_wallpaper()` — `gsettings set` + `notify-send`
 
 ---
 
@@ -133,7 +134,7 @@ Can also be tested standalone: `bash src/fetcher.sh`
 - Sets `_WL_CONFIG_DIRTY=true`
 - Does **not** call `save_config()`
 
-On submenu exit (item 5 or window close): if the flag is set, the user is asked "Apply now?". On confirmation: `save_config()` then `deploy_services()`.
+On submenu exit (item **6** or window close): if the flag is set, the user is asked "Apply now?". On confirmation: `save_config()` then `deploy_services()`.
 
 This means a user can make multiple configuration changes and apply them all in one shot, or discard them by choosing not to apply.
 
@@ -145,7 +146,8 @@ This means a user can make multiple configuration changes and apply them all in 
 | 2 | ⏱️ Update interval | `set_update_interval` | sets `INTERVAL`, marks dirty |
 | 3 | 🌍 Image sources | `set_image_sources` | sets `SOURCES`, marks dirty |
 | 4 | 🔑 NASA API Key | `set_apod_api_key` | sets `APOD_API_KEY`, marks dirty |
-| 5 | 🚪 Exit | `break` | triggers apply prompt if dirty |
+| 5 | 🖼️ Gallery limit | `set_gallery_max` | sets `GALLERY_MAX_FILES`, marks dirty |
+| 6 | 🚪 Exit | `break` | triggers apply prompt if dirty |
 
 ### Maintenance submenu
 
@@ -320,6 +322,14 @@ Key timer options:
 
 | Date | Component | Bug | Fix |
 | --- | --- | --- | --- |
+| 2026-04-04 | `fetcher.sh` | `source waylume.conf` / `source waylume.state` — arbitrary code execution if file tampered | Replaced with `_wl_read_keyval()`: safe `key=value` parser with explicit key whitelist, no `eval` |
+| 2026-04-04 | `main.sh` | `source "$CONF_FILE"` in `load_config()` — same vector, runs in interactive user shell | `_wl_read_keyval()` defined in `main.sh`; `load_config` updated |
+| 2026-04-04 | `fetcher.sh` | `"fetch_${SELECTED_SOURCE,,}"` — dynamic dispatch to arbitrary function name | Replaced with `case`; only 4 known source names allowed; unknown → local gallery + notify |
+| 2026-04-04 | `process_image` | Bare `%` in `IMG_TITLE` expanded as ImageMagick format specifier; C0 control chars misaligned overlay | `${...//%/%%}` + `tr -d \000-\037\177` on `DISPLAY_TITLE` before `-annotate` |
+| 2026-04-04 | `fetch_unsplash` | Downloaded on every timer tick — gallery grew unboundedly | Added `UNSPLASH_LAST_DATE` state; capped at 1 download/day like other sources |
+| 2026-04-04 | `fetcher.sh` | Gallery had no size limit — disk filled over time | Added `prune_gallery()` + `GALLERY_MAX_FILES` config (default 60); exposed in Settings |
+| 2026-04-01 | `fetch_wikimedia` | `\uXXXX` in filename → `--data-urlencode` sent literal `%5Cu00ed` → empty `thumburl` | Python3 decode before Step 2 curl call |
+| 2026-04-01 | `unpin_from_favorites` | Missing closing `}` → premature EOF syntax error | Fixed targeted replacement |
 | 2026-03-11 | `fetch_bing` | `format=js` rejected by API → empty URL → silent failure | Changed to `format=json`; added fallback to `apply_random_local` |
 | earlier | `yad_info/error/question` | Recursive calls → segfault | Rewrote as non-recursive wrappers |
 | earlier | `fetcher.sh` main | `SOURCES` saved with literal `\n` → `case` never matched | Strip whitespace from each `SOURCE_ARRAY` element |

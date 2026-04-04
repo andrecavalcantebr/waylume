@@ -10,8 +10,9 @@ Ele foi criado para preencher a lacuna deixada por ferramentas como o Variety, q
 
 * **Consumo Zero:** Não roda em background. A GUI abre apenas quando você quer configurar. O Systemd cuida do agendamento.
 * **Agnóstico de Daemon:** Ao fechar a janela, nenhuma RAM é consumida pelo WayLume.
-* **Três Fontes de Imagens:** Bing (Foto do Dia), NASA APOD (Astronomy Picture of the Day) ou Unsplash — escolha uma ou mais.
-* **Inteligente:** Fontes com imagem-do-dia (APOD, Bing) baixam apenas uma vez por dia. Nas execuções seguintes do timer, o WayLume rotaciona automaticamente pela galeria local — sem desperdício de banda.
+* **Quatro Fontes de Imagens:** Bing (Foto do Dia), NASA APOD (Astronomy Picture of the Day), Unsplash e Wikimedia Picture of the Day — escolha uma ou mais.
+* **Um Download por Fonte por Dia:** Cada fonte é limitada a uma nova imagem por dia. Nas execuções seguintes do timer, o WayLume rotaciona automaticamente pela galeria local — sem desperdício de banda.
+* **Limite da Galeria:** Número máximo de imagens configurado em disco (padrão: 60). As imagens mais antigas são removidas automaticamente após cada download.
 * **Título Sobreposto:** Quando disponível, o título da imagem é renderizado diretamente no wallpaper via ImageMagick (opcional).
 * **Resiliência:** O Systemd Timer com `Persistent=true` garante que execuções perdidas (PC desligado) sejam recuperadas ao logar.
 * **Desinstalação Limpa:** Remove timers, scripts e configurações sem apagar sua galeria de fotos.
@@ -72,10 +73,11 @@ Para instalar diretamente sem a pergunta interativa:
 | --- | --- |
 | 📂 Pasta da galeria | Diretório onde as fotos são armazenadas |
 | ⏱️ Tempo de atualização | Com que frequência o timer troca o wallpaper (minutos ou horas) |
-| 🌍 Fontes de imagens | **Bing** (foto do dia), **Unsplash** (aleatória) e/ou **APOD** (NASA) |
+| 🌍 Fontes de imagens | **Bing** (foto do dia), **Unsplash** (aleatória), **APOD** (NASA) e/ou **Wikimedia** (foto do dia) — cada fonte baixa no máximo uma imagem nova por dia |
 | 🔑 API Key da NASA | Chave para a API do APOD (padrão: `DEMO_KEY`) |
+| 🖼️ Limite da galeria | Número máximo de imagens mantidas no disco (0 = sem limite, padrão: 60) |
 
-> **Fluxo de configuração:** as alterações ficam em memória até o usuário sair do submenu. Ao sair (item 5 ou botão Fechar), se houver mudanças, o WayLume pergunta se deseja aplicar. Ao confirmar, salva e reinicia o timer automaticamente.
+> **Fluxo de configuração:** as alterações ficam em memória até o usuário sair do submenu. Ao sair (item 6 ou botão Fechar), se houver mudanças, o WayLume pergunta se deseja aplicar. Ao confirmar, salva e reinicia o timer automaticamente.
 
 > **Dica NASA APOD:** A chave `DEMO_KEY` tem limite de 30 req/hora. Para uso contínuo, registre uma chave gratuita em [api.nasa.gov](https://api.nasa.gov) (limite: 1.000 req/dia).
 

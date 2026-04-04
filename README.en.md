@@ -10,8 +10,9 @@ It was created to fill the gap left by tools like Variety, which face stability 
 
 * **Zero Resource Usage:** Doesn't run in the background. The GUI opens only when you want to configure. Systemd handles the scheduling.
 * **Daemon-Agnostic:** Once the window is closed, WayLume consumes no RAM.
-* **Three Image Sources:** Bing (Photo of the Day), NASA APOD (Astronomy Picture of the Day), or Unsplash — choose one or more.
-* **Smart Caching:** Sources with a daily image (APOD, Bing) download only once per day. On subsequent timer runs, WayLume automatically rotates through the local gallery — no bandwidth waste.
+* **Four Image Sources:** Bing (Photo of the Day), NASA APOD (Astronomy Picture of the Day), Unsplash, and Wikimedia Picture of the Day — choose one or more.
+* **One Download Per Source Per Day:** Every source is capped at one new image per day. On subsequent timer runs, WayLume automatically rotates through the local gallery — no bandwidth waste.
+* **Gallery Size Limit:** Configurable maximum number of images kept on disk (default: 60). Oldest images are pruned automatically after each download.
 * **Overlaid Title:** When available, the image title is rendered directly onto the wallpaper via ImageMagick (optional).
 * **Resilience:** The Systemd Timer with `Persistent=true` ensures missed runs (PC off) are caught up on login.
 * **Clean Uninstall:** Removes timers, scripts, and config without deleting your photo gallery.
@@ -72,10 +73,11 @@ To install directly without the interactive prompt:
 | --- | --- |
 | 📂 Gallery folder | Directory where photos are stored |
 | ⏱️ Update interval | How often the timer changes the wallpaper (minutes or hours) |
-| 🌍 Image sources | **Bing** (photo of the day), **Unsplash** (random), and/or **APOD** (NASA) |
+| 🌍 Image sources | **Bing** (photo of the day), **Unsplash** (random), **APOD** (NASA) and/or **Wikimedia** (picture of the day) — each downloads at most one new image per day |
 | 🔑 NASA API Key | Key for the APOD API (default: `DEMO_KEY`) |
+| 🖼️ Gallery limit | Maximum number of images kept on disk (0 = unlimited, default: 60) |
 
-> **Settings flow:** Changes stay in memory until you exit the submenu. On exit (item 5 or Close button), if there are pending changes, WayLume asks whether to apply them. On confirmation, it saves and restarts the timer automatically.
+> **Settings flow:** Changes stay in memory until you exit the submenu. On exit (item 6 or Close button), if there are pending changes, WayLume asks whether to apply them. On confirmation, it saves and restarts the timer automatically.
 
 > **NASA APOD tip:** The `DEMO_KEY` has a 30 req/hour limit. For continuous use, register a free key at [api.nasa.gov](https://api.nasa.gov) (limit: 1,000 req/day).
 

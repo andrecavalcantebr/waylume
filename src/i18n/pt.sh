@@ -63,7 +63,11 @@ MSG_GALLERY_CLEAN_OK="Nenhum arquivo inválido encontrado na galeria. ✅"
 TITLE_GALLERY_CLEAN="WayLume - Limpar Galeria"
 MSG_GALLERY_CLEAN_CONFIRM="Encontrados %d arquivo(s) corrompido(s):\n%s\n\nDeseja removê-los?"
 MSG_GALLERY_CLEAN_DONE="%d arquivo(s) removido(s) da galeria."
-
+# ── set_gallery_max ─────────────────────────────────────────────────────────────────
+TITLE_GALLERY_MAX="WayLume — Limite da Galeria"
+MSG_GALLERY_MAX_PROMPT="Número máximo de imagens a manter na galeria.\n0 = sem limite."
+MSG_GALLERY_MAX_SAVED="Limite da galeria definido para %s imagens."   # %s = número
+MSG_GALLERY_MAX_DISABLED="Limite da galeria desativado. Os arquivos vão acumular indefinidamente."
 # ── fetch_and_apply_wallpaper ─────────────────────────────────────────────────
 MSG_FETCH_NO_SCRIPTS="Os scripts não foram gerados. Execute: waylume --install"
 MSG_FETCH_PROGRESS="Baixando e aplicando novo wallpaper..."
@@ -96,7 +100,8 @@ MENU_SETTINGS_1="📂 1. Pasta da galeria"
 MENU_SETTINGS_2="⏱️  2. Tempo de atualização"
 MENU_SETTINGS_3="🌍 3. Fontes de imagens"
 MENU_SETTINGS_4="🔑 4. API Key da NASA"
-MENU_SETTINGS_5="🚪 5. Sair"
+MENU_SETTINGS_5="�️  5. Limite da galeria"
+MENU_SETTINGS_6="🚪 6. Sair"
 MSG_SETTINGS_APPLY_PROMPT="Configurações foram alteradas. Deseja aplicar agora?\nIsso também reinicia o timer com o novo intervalo."
 
 # ── submenu manutenção ────────────────────────────────────────────────────────────────────────────

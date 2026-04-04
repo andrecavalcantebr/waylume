@@ -58,11 +58,17 @@ MSG_APOD_KEY_SET="(key configured: %s...)"   # %s = first 6 chars
 MSG_APOD_KEY_PROMPT="Enter your NASA APOD API Key:\n%s"   # %s = MSG_APOD_KEY_*
 MSG_APOD_KEY_SAVED="API Key saved!"
 
-# ── clean_gallery ─────────────────────────────────────────────────────────────
+# ── clean_gallery ────────────────────────────────────────────────────────────────
 MSG_GALLERY_CLEAN_OK="No invalid files found in the gallery. ✅"
 TITLE_GALLERY_CLEAN="WayLume - Clean Gallery"
 MSG_GALLERY_CLEAN_CONFIRM="Found %d corrupted file(s):\n%s\n\nDo you want to remove them?"
 MSG_GALLERY_CLEAN_DONE="%d file(s) removed from the gallery."
+
+# ── set_gallery_max ────────────────────────────────────────────────────────────────
+TITLE_GALLERY_MAX="WayLume — Gallery Limit"
+MSG_GALLERY_MAX_PROMPT="Maximum number of images to keep in the gallery.\n0 = unlimited."
+MSG_GALLERY_MAX_SAVED="Gallery limit set to %s images."   # %s = number
+MSG_GALLERY_MAX_DISABLED="Gallery limit disabled. Files will accumulate indefinitely."
 
 # ── fetch_and_apply_wallpaper ─────────────────────────────────────────────────
 MSG_FETCH_NO_SCRIPTS="Scripts not generated. Run: waylume --install"
@@ -96,7 +102,8 @@ MENU_SETTINGS_1="📂 1. Gallery folder"
 MENU_SETTINGS_2="⏱️  2. Update interval"
 MENU_SETTINGS_3="🌍 3. Image sources"
 MENU_SETTINGS_4="🔑 4. NASA API Key"
-MENU_SETTINGS_5="🚪 5. Exit"
+MENU_SETTINGS_5="�️  5. Gallery limit"
+MENU_SETTINGS_6="🚪 6. Exit"
 MSG_SETTINGS_APPLY_PROMPT="Settings were changed. Do you want to apply now?\nThis will also restart the timer with the new interval."
 
 # ── maintenance submenu ────────────────────────────────────────────────────────────────────────────

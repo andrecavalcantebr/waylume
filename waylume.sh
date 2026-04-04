@@ -59,6 +59,30 @@ _WL_CONFIG_DIRTY=false
 # FUNCTIONS
 # ====================================================
 
+# Safe key=value file reader — no arbitrary code execution.
+# Usage: _wl_read_keyval <file> KEY1 KEY2 ...
+# Only assigns variables whose names are explicitly listed as arguments.
+# Strips surrounding quotes; ignores blank lines and comments.
+_wl_read_keyval() {
+    local _wl_file="$1"; shift
+    local _wl_allowed=("$@")
+    local _wl_line _wl_key _wl_value _wl_k
+    [ -f "$_wl_file" ] || return 0
+    while IFS= read -r _wl_line; do
+        [[ "$_wl_line" =~ ^[[:space:]]*(#.*)?$ ]] && continue
+        [[ "$_wl_line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]] || continue
+        _wl_key="${BASH_REMATCH[1]}"
+        _wl_value="${BASH_REMATCH[2]}"
+        _wl_value="${_wl_value#\"}"; _wl_value="${_wl_value%\"}"
+        _wl_value="${_wl_value#\'}"; _wl_value="${_wl_value%\'}"
+        for _wl_k in "${_wl_allowed[@]}"; do
+            [[ "$_wl_key" == "$_wl_k" ]] || continue
+            printf -v "$_wl_key" '%s' "$_wl_value"
+            break
+        done
+    done < "$_wl_file"
+}
+
 # Force yad through XWayland so WM_CLASS and window icons work correctly.
 # Without this, yad running under a native Wayland session triggers
 # GDK X11 assertion errors and --class has no effect on the taskbar icon.
@@ -149,16 +173,18 @@ save_config() {
         echo "INTERVAL=\"$INTERVAL\""
         echo "SOURCES=\"$SOURCES\""
         echo "APOD_API_KEY=\"$APOD_API_KEY\""
+        echo "GALLERY_MAX_FILES=\"$GALLERY_MAX_FILES\""
     } > "$CONF_FILE"
 }
 
 # Load config from disk, applying defaults for missing keys
 load_config() {
-    source "$CONF_FILE" 2>/dev/null
-    [ -z "$DEST_DIR" ]     && DEST_DIR="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")/WayLume"
-    [ -z "$INTERVAL" ]     && INTERVAL="1h"
-    [ -z "$SOURCES" ]      && SOURCES="Unsplash"
-    [ -z "$APOD_API_KEY" ] && APOD_API_KEY="DEMO_KEY"
+    _wl_read_keyval "$CONF_FILE" DEST_DIR INTERVAL SOURCES APOD_API_KEY GALLERY_MAX_FILES
+    [ -z "$DEST_DIR" ]          && DEST_DIR="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")/WayLume"
+    [ -z "$INTERVAL" ]          && INTERVAL="1h"
+    [ -z "$SOURCES" ]           && SOURCES="Unsplash"
+    [ -z "$APOD_API_KEY" ]      && APOD_API_KEY="DEMO_KEY"
+    [ -z "$GALLERY_MAX_FILES" ] && GALLERY_MAX_FILES=60
 }
 
 # Write the wallpaper fetcher worker script and activate the systemd timer
@@ -180,7 +206,31 @@ export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export DISPLAY="${DISPLAY:-:0}"
 
-source "$HOME/.config/waylume/waylume.conf"
+# Safe key=value file reader — no arbitrary code execution.
+# Usage: _wl_read_keyval <file> KEY1 KEY2 ...
+# Only assigns variables whose names are explicitly listed as arguments.
+# Strips surrounding quotes; ignores blank lines and comments.
+_wl_read_keyval() {
+    local _wl_file="$1"; shift
+    local _wl_allowed=("$@")
+    local _wl_line _wl_key _wl_value _wl_k
+    [ -f "$_wl_file" ] || return 0
+    while IFS= read -r _wl_line; do
+        [[ "$_wl_line" =~ ^[[:space:]]*(#.*)?$ ]] && continue
+        [[ "$_wl_line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]] || continue
+        _wl_key="${BASH_REMATCH[1]}"
+        _wl_value="${BASH_REMATCH[2]}"
+        _wl_value="${_wl_value#\"}"; _wl_value="${_wl_value%\"}"
+        _wl_value="${_wl_value#\'}"; _wl_value="${_wl_value%\'}"
+        for _wl_k in "${_wl_allowed[@]}"; do
+            [[ "$_wl_key" == "$_wl_k" ]] || continue
+            printf -v "$_wl_key" '%s' "$_wl_value"
+            break
+        done
+    done < "$_wl_file"
+}
+
+_wl_read_keyval "$HOME/.config/waylume/waylume.conf" DEST_DIR INTERVAL SOURCES APOD_API_KEY GALLERY_MAX_FILES
 mkdir -p "$DEST_DIR"
 
 # ── i18n: detect language and load strings ────────────────────────────────────
@@ -197,8 +247,9 @@ TODAY=$(date +%Y-%m-%d)
 # Read persisted last-download dates per source
 APOD_LAST_DATE=""
 BING_LAST_DATE=""
+UNSPLASH_LAST_DATE=""
 WIKIMEDIA_LAST_DATE=""
-[ -f "$STATE_FILE" ] && source "$STATE_FILE" 2>/dev/null
+[ -f "$STATE_FILE" ] && _wl_read_keyval "$STATE_FILE" APOD_LAST_DATE BING_LAST_DATE UNSPLASH_LAST_DATE WIKIMEDIA_LAST_DATE
 
 # Shared output variables set by each fetch_* function
 IMG_TITLE=""
@@ -225,8 +276,26 @@ save_state() {
     {
         echo "APOD_LAST_DATE=\"$APOD_LAST_DATE\""
         echo "BING_LAST_DATE=\"$BING_LAST_DATE\""
+        echo "UNSPLASH_LAST_DATE=\"$UNSPLASH_LAST_DATE\""
         echo "WIKIMEDIA_LAST_DATE=\"$WIKIMEDIA_LAST_DATE\""
     } > "$STATE_FILE"
+}
+
+# Remove oldest gallery files when count exceeds GALLERY_MAX_FILES.
+# GALLERY_MAX_FILES=0 disables pruning. Files are sorted chronologically
+# by filename (waylume_YYYYMMDD_HHMMSS.jpg) so the oldest are always removed first.
+prune_gallery() {
+    local MAX="${GALLERY_MAX_FILES:-60}"
+    { [ "$MAX" -gt 0 ] 2>/dev/null; } || return  # 0 or non-numeric = disabled
+    local -a FILES
+    mapfile -d '' FILES < <(
+        find "$DEST_DIR" -type f \( -iname "*.jpg" -o -iname "*.png" \) -print0 | sort -z
+    )
+    local COUNT="${#FILES[@]}"
+    if (( COUNT > MAX )); then
+        local TO_DELETE=$(( COUNT - MAX ))
+        rm -f -- "${FILES[@]:0:$TO_DELETE}"
+    fi
 }
 
 # ============================================================
@@ -262,10 +331,16 @@ fetch_bing() {
 
 fetch_unsplash() {
     local TARGET="$1"
+
+    # Limit to one new download per day — rotate from gallery if already done today.
+    if [ "$UNSPLASH_LAST_DATE" = "$TODAY" ]; then
+        apply_random_local "Unsplash"
+        return
+    fi
+
     local HDR_TMP="/tmp/wl_hdr_$$"
     local PICSUM_ID AUTHOR INFO_JSON
 
-    # Unsplash (picsum) returns a different random image on every request — always download.
     # Capture response headers alongside the image to extract Picsum-ID.
     curl -sL "https://picsum.photos/1920/1080.jpg" -D "$HDR_TMP" -o "$TARGET"
 
@@ -281,6 +356,7 @@ fetch_unsplash() {
     fi
     [ -z "$IMG_TITLE" ] && IMG_TITLE="Unsplash / picsum.photos"
 
+    UNSPLASH_LAST_DATE="$TODAY"
     MESSAGE="${MSG_FETCH_SOURCE_UNSPLASH:-New wallpaper downloaded via Unsplash}"
 }
 
@@ -416,6 +492,22 @@ process_image() {
 
     if [ -n "$IMG_TITLE" ]; then
         local DISPLAY_TITLE="${IMG_TITLE:0:120}"
+
+        # Sanitise before passing to ImageMagick -annotate:
+        #
+        # 1. Escape '%' → '%%': ImageMagick treats bare % as a format specifier
+        #    (e.g. %f expands to the filename, %[exif:...] to EXIF fields).
+        #    A crafted API response like {"title": "%[exif:ImageDescription]"}
+        #    would cause ImageMagick to render arbitrary image metadata instead
+        #    of the intended title text.
+        DISPLAY_TITLE="${DISPLAY_TITLE//%/%%}"
+
+        # 2. Strip C0 control characters (0x00-0x1F) and DEL (0x7F):
+        #    Control bytes embedded in the title (e.g. \n, \t, \r) could
+        #    misalign the overlay text or be mis-interpreted by the shell
+        #    when expanded inside the double-quoted -annotate argument.
+        DISPLAY_TITLE=$(printf '%s' "$DISPLAY_TITLE" | tr -d '\000-\037\177')
+
         # Resize → crop → composite bar → título (NE) → brand text (NW): just one pass
         convert "$TARGET" \
             -resize "${SCREEN_W}x${SCREEN_H}^" \
@@ -466,8 +558,17 @@ else
     SELECTED_SOURCE="${SOURCE_ARRAY[$RANDOM % ${#SOURCE_ARRAY[@]}]}"
     TARGET_PATH="$DEST_DIR/waylume_$(date +%Y%m%d_%H%M%S).jpg"
 
-    # Dispatch to the matching fetch function (Bing→fetch_bing, etc.).
-    "fetch_${SELECTED_SOURCE,,}" "$TARGET_PATH"
+    # Dispatch — only known source names are allowed; unknown values fall back to local gallery.
+    case "${SELECTED_SOURCE,,}" in
+        bing)      fetch_bing      "$TARGET_PATH" ;;
+        unsplash)  fetch_unsplash  "$TARGET_PATH" ;;
+        apod)      fetch_apod      "$TARGET_PATH" ;;
+        wikimedia) fetch_wikimedia "$TARGET_PATH" ;;
+        *)
+            notify-send "WayLume ⚠️" "Unknown source: ${SELECTED_SOURCE}. Using local gallery."
+            apply_random_local "$SELECTED_SOURCE"
+            ;;
+    esac
 fi
 
 save_state
@@ -475,6 +576,7 @@ save_state
 validate_image  "$TARGET_PATH"
 process_image   "$TARGET_PATH"
 apply_wallpaper "$TARGET_PATH"
+prune_gallery
 EOF
     chmod +x "$FETCHER_SCRIPT"
 
@@ -622,7 +724,11 @@ MSG_GALLERY_CLEAN_OK="Nenhum arquivo inválido encontrado na galeria. ✅"
 TITLE_GALLERY_CLEAN="WayLume - Limpar Galeria"
 MSG_GALLERY_CLEAN_CONFIRM="Encontrados %d arquivo(s) corrompido(s):\n%s\n\nDeseja removê-los?"
 MSG_GALLERY_CLEAN_DONE="%d arquivo(s) removido(s) da galeria."
-
+# ── set_gallery_max ─────────────────────────────────────────────────────────────────
+TITLE_GALLERY_MAX="WayLume — Limite da Galeria"
+MSG_GALLERY_MAX_PROMPT="Número máximo de imagens a manter na galeria.\n0 = sem limite."
+MSG_GALLERY_MAX_SAVED="Limite da galeria definido para %s imagens."   # %s = número
+MSG_GALLERY_MAX_DISABLED="Limite da galeria desativado. Os arquivos vão acumular indefinidamente."
 # ── fetch_and_apply_wallpaper ─────────────────────────────────────────────────
 MSG_FETCH_NO_SCRIPTS="Os scripts não foram gerados. Execute: waylume --install"
 MSG_FETCH_PROGRESS="Baixando e aplicando novo wallpaper..."
@@ -655,7 +761,8 @@ MENU_SETTINGS_1="📂 1. Pasta da galeria"
 MENU_SETTINGS_2="⏱️  2. Tempo de atualização"
 MENU_SETTINGS_3="🌍 3. Fontes de imagens"
 MENU_SETTINGS_4="🔑 4. API Key da NASA"
-MENU_SETTINGS_5="🚪 5. Sair"
+MENU_SETTINGS_5="�️  5. Limite da galeria"
+MENU_SETTINGS_6="🚪 6. Sair"
 MSG_SETTINGS_APPLY_PROMPT="Configurações foram alteradas. Deseja aplicar agora?\nIsso também reinicia o timer com o novo intervalo."
 
 # ── submenu manutenção ────────────────────────────────────────────────────────────────────────────
@@ -738,11 +845,17 @@ MSG_APOD_KEY_SET="(key configured: %s...)"   # %s = first 6 chars
 MSG_APOD_KEY_PROMPT="Enter your NASA APOD API Key:\n%s"   # %s = MSG_APOD_KEY_*
 MSG_APOD_KEY_SAVED="API Key saved!"
 
-# ── clean_gallery ─────────────────────────────────────────────────────────────
+# ── clean_gallery ────────────────────────────────────────────────────────────────
 MSG_GALLERY_CLEAN_OK="No invalid files found in the gallery. ✅"
 TITLE_GALLERY_CLEAN="WayLume - Clean Gallery"
 MSG_GALLERY_CLEAN_CONFIRM="Found %d corrupted file(s):\n%s\n\nDo you want to remove them?"
 MSG_GALLERY_CLEAN_DONE="%d file(s) removed from the gallery."
+
+# ── set_gallery_max ────────────────────────────────────────────────────────────────
+TITLE_GALLERY_MAX="WayLume — Gallery Limit"
+MSG_GALLERY_MAX_PROMPT="Maximum number of images to keep in the gallery.\n0 = unlimited."
+MSG_GALLERY_MAX_SAVED="Gallery limit set to %s images."   # %s = number
+MSG_GALLERY_MAX_DISABLED="Gallery limit disabled. Files will accumulate indefinitely."
 
 # ── fetch_and_apply_wallpaper ─────────────────────────────────────────────────
 MSG_FETCH_NO_SCRIPTS="Scripts not generated. Run: waylume --install"
@@ -776,7 +889,8 @@ MENU_SETTINGS_1="📂 1. Gallery folder"
 MENU_SETTINGS_2="⏱️  2. Update interval"
 MENU_SETTINGS_3="🌍 3. Image sources"
 MENU_SETTINGS_4="🔑 4. NASA API Key"
-MENU_SETTINGS_5="🚪 5. Exit"
+MENU_SETTINGS_5="�️  5. Gallery limit"
+MENU_SETTINGS_6="🚪 6. Exit"
 MSG_SETTINGS_APPLY_PROMPT="Settings were changed. Do you want to apply now?\nThis will also restart the timer with the new interval."
 
 # ── maintenance submenu ────────────────────────────────────────────────────────────────────────────
@@ -988,6 +1102,28 @@ set_apod_api_key() {
         --text="${MSG_APOD_KEY_SAVED:-API Key saved!}"
 }
 
+# GUI: set the maximum number of images kept in the gallery
+set_gallery_max() {
+    local NEW_MAX
+    NEW_MAX=$(yad "${YAD_BASE[@]}" --scale \
+        --title="${TITLE_GALLERY_MAX:-WayLume — Gallery Limit}" \
+        --text="${MSG_GALLERY_MAX_PROMPT:-Maximum number of images to keep in the gallery.\n0 = unlimited.}" \
+        --value="${GALLERY_MAX_FILES:-60}" \
+        --min-value=0 --max-value=500 --step=10 \
+        --width=480 \
+        "${YAD_BTN_OKC[@]}")
+    [ $? -ne 0 ] && return
+    GALLERY_MAX_FILES="$NEW_MAX"
+    _WL_CONFIG_DIRTY=true
+    if [ "$NEW_MAX" = "0" ]; then
+        yad_info --title="WayLume" \
+            --text="${MSG_GALLERY_MAX_DISABLED:-Gallery limit disabled. Files will accumulate indefinitely.}"
+    else
+        yad_info --title="WayLume" \
+            --text="$(printf "${MSG_GALLERY_MAX_SAVED:-Gallery limit set to %s images.}" "$NEW_MAX")"
+    fi
+}
+
 # Remove non-image files from the gallery
 clean_gallery() {
     local INVALID=()
@@ -1085,8 +1221,9 @@ menu_settings() {
             2 "${MENU_SETTINGS_2:-⏱️  2. Update interval}" \
             3 "${MENU_SETTINGS_3:-🌍 3. Image sources}" \
             4 "${MENU_SETTINGS_4:-🔑 4. NASA API Key}" \
-            5 "${MENU_SETTINGS_5:-🚪 5. Exit}" \
-            --width=420 --height=320 --no-headers \
+            5 "${MENU_SETTINGS_5:-�️  5. Gallery limit}" \
+            6 "${MENU_SETTINGS_6:-🚪 6. Exit}" \
+            --width=420 --height=360 --no-headers \
             "${YAD_BTN_OKC[@]}")
         CHOICE="${CHOICE%%|*}"
         [ $? -ne 0 ] || [ -z "$CHOICE" ] && break
@@ -1095,7 +1232,8 @@ menu_settings() {
             2) set_update_interval  ;;
             3) set_image_sources    ;;
             4) set_apod_api_key     ;;
-            5) break                ;;
+            5) set_gallery_max      ;;
+            6) break                ;;
         esac
     done
 

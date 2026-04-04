@@ -59,6 +59,30 @@ _WL_CONFIG_DIRTY=false
 # FUNCTIONS
 # ====================================================
 
+# Safe key=value file reader — no arbitrary code execution.
+# Usage: _wl_read_keyval <file> KEY1 KEY2 ...
+# Only assigns variables whose names are explicitly listed as arguments.
+# Strips surrounding quotes; ignores blank lines and comments.
+_wl_read_keyval() {
+    local _wl_file="$1"; shift
+    local _wl_allowed=("$@")
+    local _wl_line _wl_key _wl_value _wl_k
+    [ -f "$_wl_file" ] || return 0
+    while IFS= read -r _wl_line; do
+        [[ "$_wl_line" =~ ^[[:space:]]*(#.*)?$ ]] && continue
+        [[ "$_wl_line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]] || continue
+        _wl_key="${BASH_REMATCH[1]}"
+        _wl_value="${BASH_REMATCH[2]}"
+        _wl_value="${_wl_value#\"}"; _wl_value="${_wl_value%\"}"
+        _wl_value="${_wl_value#\'}"; _wl_value="${_wl_value%\'}"
+        for _wl_k in "${_wl_allowed[@]}"; do
+            [[ "$_wl_key" == "$_wl_k" ]] || continue
+            printf -v "$_wl_key" '%s' "$_wl_value"
+            break
+        done
+    done < "$_wl_file"
+}
+
 # Force yad through XWayland so WM_CLASS and window icons work correctly.
 # Without this, yad running under a native Wayland session triggers
 # GDK X11 assertion errors and --class has no effect on the taskbar icon.
@@ -149,16 +173,18 @@ save_config() {
         echo "INTERVAL=\"$INTERVAL\""
         echo "SOURCES=\"$SOURCES\""
         echo "APOD_API_KEY=\"$APOD_API_KEY\""
+        echo "GALLERY_MAX_FILES=\"$GALLERY_MAX_FILES\""
     } > "$CONF_FILE"
 }
 
 # Load config from disk, applying defaults for missing keys
 load_config() {
-    source "$CONF_FILE" 2>/dev/null
-    [ -z "$DEST_DIR" ]     && DEST_DIR="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")/WayLume"
-    [ -z "$INTERVAL" ]     && INTERVAL="1h"
-    [ -z "$SOURCES" ]      && SOURCES="Unsplash"
-    [ -z "$APOD_API_KEY" ] && APOD_API_KEY="DEMO_KEY"
+    _wl_read_keyval "$CONF_FILE" DEST_DIR INTERVAL SOURCES APOD_API_KEY GALLERY_MAX_FILES
+    [ -z "$DEST_DIR" ]          && DEST_DIR="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")/WayLume"
+    [ -z "$INTERVAL" ]          && INTERVAL="1h"
+    [ -z "$SOURCES" ]           && SOURCES="Unsplash"
+    [ -z "$APOD_API_KEY" ]      && APOD_API_KEY="DEMO_KEY"
+    [ -z "$GALLERY_MAX_FILES" ] && GALLERY_MAX_FILES=60
 }
 
 # Write the wallpaper fetcher worker script and activate the systemd timer
@@ -423,6 +449,28 @@ set_apod_api_key() {
         --text="${MSG_APOD_KEY_SAVED:-API Key saved!}"
 }
 
+# GUI: set the maximum number of images kept in the gallery
+set_gallery_max() {
+    local NEW_MAX
+    NEW_MAX=$(yad "${YAD_BASE[@]}" --scale \
+        --title="${TITLE_GALLERY_MAX:-WayLume — Gallery Limit}" \
+        --text="${MSG_GALLERY_MAX_PROMPT:-Maximum number of images to keep in the gallery.\n0 = unlimited.}" \
+        --value="${GALLERY_MAX_FILES:-60}" \
+        --min-value=0 --max-value=500 --step=10 \
+        --width=480 \
+        "${YAD_BTN_OKC[@]}")
+    [ $? -ne 0 ] && return
+    GALLERY_MAX_FILES="$NEW_MAX"
+    _WL_CONFIG_DIRTY=true
+    if [ "$NEW_MAX" = "0" ]; then
+        yad_info --title="WayLume" \
+            --text="${MSG_GALLERY_MAX_DISABLED:-Gallery limit disabled. Files will accumulate indefinitely.}"
+    else
+        yad_info --title="WayLume" \
+            --text="$(printf "${MSG_GALLERY_MAX_SAVED:-Gallery limit set to %s images.}" "$NEW_MAX")"
+    fi
+}
+
 # Remove non-image files from the gallery
 clean_gallery() {
     local INVALID=()
@@ -520,8 +568,9 @@ menu_settings() {
             2 "${MENU_SETTINGS_2:-⏱️  2. Update interval}" \
             3 "${MENU_SETTINGS_3:-🌍 3. Image sources}" \
             4 "${MENU_SETTINGS_4:-🔑 4. NASA API Key}" \
-            5 "${MENU_SETTINGS_5:-🚪 5. Exit}" \
-            --width=420 --height=320 --no-headers \
+            5 "${MENU_SETTINGS_5:-�️  5. Gallery limit}" \
+            6 "${MENU_SETTINGS_6:-🚪 6. Exit}" \
+            --width=420 --height=360 --no-headers \
             "${YAD_BTN_OKC[@]}")
         CHOICE="${CHOICE%%|*}"
         [ $? -ne 0 ] || [ -z "$CHOICE" ] && break
@@ -530,7 +579,8 @@ menu_settings() {
             2) set_update_interval  ;;
             3) set_image_sources    ;;
             4) set_apod_api_key     ;;
-            5) break                ;;
+            5) set_gallery_max      ;;
+            6) break                ;;
         esac
     done
 

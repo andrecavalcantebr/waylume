@@ -1,4 +1,4 @@
-# CHECKPOINT — Session 2026-04-01
+# CHECKPOINT — Session 2026-04-04
 
 > Read this file at the start of each session to recover development context.
 
@@ -8,15 +8,15 @@
 
 - **Repo:** github.com/andrecavalcantebr/waylume
 - **Branch:** main
-- **Latest commit:** `1718a23` — chore: linuxtoys-pr — symlink waylume.svg to src/waylume.svg
+- **Latest commit:** `3d33108` — docs: update CHECKPOINT.md for session 2026-04-01 (v1.2.0 + LinuxToys PR + critical analysis)
+- **Uncommitted work (session 2026-04-04):** security fix — `_wl_read_keyval()` replacing `source` in `fetcher.sh`
 - **Git log:**
 
   ```text
-  1718a23  (HEAD -> main, origin/main) chore: linuxtoys-pr — symlink waylume.svg to src/waylume.svg
+  3d33108  (HEAD -> main, origin/main) docs: update CHECKPOINT.md for session 2026-04-01 (v1.2.0 + LinuxToys PR + critical analysis)
+  1718a23  chore: linuxtoys-pr — symlink waylume.svg to src/waylume.svg
   889737f  feat: build.sh --install flag + GNOME Dash pin on first install + waylume --version (v1.2.0)
   78f987b  feat: add Wikimedia POTD source + Unsplash real author metadata (v1.1.0)
-  5238bed  docs: translate CHECKPOINT.md fully to English
-  fbbd706  chore: update CHECKPOINT to session 06/03/2026
   ```
 
 ---
@@ -26,14 +26,14 @@
 ```text
 waylume/
   src/
-    main.sh       (662 lines) — installer and GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
-    fetcher.sh    (307 lines) — systemd worker (waylume-fetch); standalone-testable with: bash src/fetcher.sh
+    main.sh       (712 lines) — installer and GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
+    fetcher.sh    (383 lines) — systemd worker (waylume-fetch); standalone-testable with: bash src/fetcher.sh
     waylume.svg   ( 22 lines) — application SVG icon
     i18n/
-      pt.sh       (118 lines) — all strings in Brazilian Portuguese
-      en.sh       (118 lines) — all strings in English
+      pt.sh       (123 lines) — all strings in Brazilian Portuguese
+      en.sh       (125 lines) — all strings in English
   build.sh        ( 50 lines) — combines the above files → waylume.sh; supports --install flag
-  waylume.sh      (1227 lines) — GENERATED ARTIFACT; do not edit directly
+  waylume.sh      (1365 lines) — GENERATED ARTIFACT; do not edit directly
   linuxtoys-pr/                — material for the LinuxToys PR (see below)
     p3/scripts/utils/
       waylume.sh               — LinuxToys installer script (nocontainer)
@@ -155,13 +155,13 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 
 | # | Option | Handler |
 | --- | --- | --- |
-| 1 | ⬇️ Baixar nova imagem agora | `fetch_and_apply_wallpaper` |
-| 2 | 🎲 Imagem aleatória da galeria | `go_random_image` |
-| 3 | ➡️ Próxima imagem da galeria | `go_next_image` |
-| 4 | ⬅️ Imagem anterior da galeria | `go_prev_image` |
-| 5 | ⚙️ Configurações | `menu_settings` (submenu) |
-| 6 | 🔧 Manutenção | `menu_maintenance` (submenu) |
-| 7 | 🚪 Sair | `break` |
+| 1 | ⬇️ Download new image now | `fetch_and_apply_wallpaper` |
+| 2 | 🎲 Random image from gallery | `go_random_image` |
+| 3 | ➡️ Next image in gallery | `go_next_image` |
+| 4 | ⬅️ Previous image in gallery | `go_prev_image` |
+| 5 | ⚙️ Settings | `menu_settings` (submenu) |
+| 6 | 🔧 Maintenance | `menu_maintenance` (submenu) |
+| 7 | 🚪 Exit | `break` |
 
 #### Settings submenu — deferred save pattern
 
@@ -169,18 +169,19 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 
 | # | Option | Handler |
 | --- | --- | --- |
-| 1 | 📂 Pasta da galeria | `set_gallery_dir` |
-| 2 | ⏱️ Tempo de atualização | `set_update_interval` |
-| 3 | 🌍 Fontes de imagens | `set_image_sources` |
-| 4 | 🔑 API Key da NASA | `set_apod_api_key` |
-| 5 | 🚪 Sair | `break` → triggers apply prompt |
+| 1 | 📂 Gallery folder | `set_gallery_dir` |
+| 2 | ⏱️ Update interval | `set_update_interval` |
+| 3 | 🌍 Image sources | `set_image_sources` |
+| 4 | 🔑 NASA API Key | `set_apod_api_key` |
+| 5 | 🖼️ Gallery limit | `set_gallery_max` |
+| 6 | 🚪 Exit | `break` → triggers apply prompt |
 
 #### Maintenance submenu
 
 | # | Option | Handler |
 | --- | --- | --- |
-| 1 | 🧹 Limpar galeria | `clean_gallery` |
-| 2 | 🗑️ Remover WayLume | `uninstall` |
+| 1 | 🧹 Clean gallery | `clean_gallery` |
+| 2 | 🗑️ Remove WayLume | `uninstall` |
 
 #### Gallery navigation
 
@@ -207,6 +208,12 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 
 | Session | Bug | Fix |
 | --- | --- | --- |
+| 2026-04-04 | `source waylume.conf` / `source waylume.state` — arbitrary code execution if file tampered | `_wl_read_keyval()`: safe `key=value` parser with explicit key whitelist, no `eval` |
+| 2026-04-04 | `source "$CONF_FILE"` in `load_config()` in `main.sh` — same vector, runs in interactive user shell | `_wl_read_keyval()` defined in `main.sh`; `load_config` updated |
+| 2026-04-04 | `"fetch_${SELECTED_SOURCE,,}"` — dynamic dispatch to arbitrary function name | Replaced with `case` statement; only 4 known source names allowed; unknown → local gallery + notify |
+| 2026-04-04 | `IMG_TITLE` in `convert -annotate` — bare `%` expanded as ImageMagick format specifier; control chars misalign overlay | `${...//%/%%}` + `tr -d \000-\037\177` applied to `DISPLAY_TITLE` in `process_image` |
+| 2026-04-04 | Unsplash downloaded on every timer tick — gallery grew unboundedly | Added `UNSPLASH_LAST_DATE` state; now capped at 1 download/day like other sources |
+| 2026-04-04 | Gallery grew without bound; no auto-cleanup | Added `prune_gallery()` in fetcher + `GALLERY_MAX_FILES` config (default 60); exposed as Settings item |
 | 2026-04-01 | Wikimedia: `\uXXXX` in filename → `--data-urlencode` sent literal `%5Cu00ed` → empty `thumburl` | Python3 decode before Step 2 curl call |
 | 2026-04-01 | `unpin_from_favorites` missing closing `}` → premature EOF syntax error | Fixed targeted replacement |
 | 2026-03-11 | Bing: `format=js` rejected by API → empty URL → silent failure | Changed to `format=json`; added fallback to local gallery |
@@ -217,12 +224,12 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 
 ---
 
-## Current development configuration
+## Default configuration
 
 ```bash
 # ~/.config/waylume/waylume.conf
-DEST_DIR="/home/andre/Imagens/WayLume"
-INTERVAL="3min"
+DEST_DIR="$USER/Images/WayLume"
+INTERVAL="3h"
 SOURCES="Bing,Unsplash,APOD,Wikimedia"
 APOD_API_KEY="DEMO_KEY"
 ```
@@ -253,18 +260,18 @@ APOD_API_KEY="DEMO_KEY"
 - **Overlay always on** — no option to disable the title banner; hardcoded in `process_image`
 - **Brand URL in banner** (`is.gd/48OrTP`) — looks like spam, user doesn't know where it points
 - **APOD low resolution** — uses `url` (~960px) for speed, but `hdurl` (4K) is never offered
-- **No gallery size limit** — disk fills over time; no auto-cleanup of oldest files
+- **No gallery size limit** — disk fills over time; no auto-cleanup of oldest files — **FIXED (2026-04-04):** `prune_gallery()` + `GALLERY_MAX_FILES=60`
 - **No timer pause/resume** — must uninstall/reinstall to stop; no toggle
 - **Multiple monitors** — `process_image` uses only `head -1` monitor from `xrandr`
 - **xrandr fallback** — if `xrandr` fails (pure Wayland without XWayland), `process_image` exits silently with no resize
 
 ### Security — issues to address in future versions
 
-- **`source "$CONF_FILE"`** in `fetcher.sh` — arbitrary code execution if the config file is tampered with; should parse key=value line by line instead
-- **`source "$STATE_FILE"`** — same problem with `waylume.state`
-- **`grep -oP` JSON parsing** — not real parsing; malicious API responses could inject unexpected output
-- **`IMG_TITLE` in `convert -annotate`** — titles with special chars (`'`, `"`) could break the ImageMagick command; truncation to 120 chars mitigates but doesn't eliminate
-- **`"fetch_${SELECTED_SOURCE,,}"`** — dynamic function dispatch depends on `SOURCES` from the conf file (already a code execution vector via `source`); secondary risk
+- ~~**`source "$CONF_FILE"`** in `fetcher.sh` — arbitrary code execution if the config file is tampered with~~ **FIXED (2026-04-04):** substituído por `_wl_read_keyval()` com whitelist explícita
+- ~~**`source "$STATE_FILE"`** — same problem with `waylume.state`~~ **FIXED (2026-04-04)**
+- **`grep -oP` JSON parsing** — not real parsing; malicious API responses could inject unexpected output. _Note: the practical risk is low after `IMG_TITLE` sanitisation (% escaping + control-char stripping), since the injected value no longer reaches ImageMagick unfiltered. A proper fix (e.g. `python3 -c json.loads`) would require refactoring all four `fetch_*` functions and is not justified at this scale. Revisit if a new source is added or if `jq` becomes a declared dependency._
+- ~~**`IMG_TITLE` in `convert -annotate`** — titles with special chars (`'`, `"`) could break the ImageMagick command; truncation to 120 chars mitigates but doesn't eliminate~~ **FIXED (2026-04-04):** `%` escaped to `%%`; C0 control chars stripped via `tr`
+- ~~**`"fetch_${SELECTED_SOURCE,,}"`** — dynamic function dispatch; `SOURCES` now parsed safely but dispatch still resolves to an arbitrary function name; mitigated by the fact that `_wl_read_keyval` no longer allows injection via conf~~ **FIXED (2026-04-04):** substituído por `case` com as 4 fontes hardcoded; valor desconhecido cai em fallback local
 
 ### Functionality — gaps for future versions
 
@@ -279,21 +286,13 @@ APOD_API_KEY="DEMO_KEY"
 
 ## Next session agenda
 
-### 1. Security: replace `source` with safe config parsing
-
-Replace `source "$CONF_FILE"` and `source "$STATE_FILE"` in `fetcher.sh` with a `read_config()` function that parses `key=value` lines safely — no arbitrary code execution.
-
-### 2. Usability: overlay toggle option
+### 1. Usability: overlay toggle option
 
 Add a config key `SHOW_OVERLAY=true/false` to `waylume.conf` and honour it in `process_image`. Expose as a toggle in the Settings submenu.
 
-### 3. Gallery size limit
+### 3. Source modularisation into `src/sources/`
 
-Add `GALLERY_MAX_FILES=30` (or size-based) to config. After each download, prune oldest files beyond the limit.
-
-### 4. Source modularisation into `src/sources/`
-
-`fetcher.sh` is at 307 lines with 4 sources. Modularise:
+`fetcher.sh` is at 331 lines with 4 sources. Modularise:
 
 ```text
 src/
@@ -307,13 +306,13 @@ src/
 
 Each source file: input `$TARGET_PATH`, output `$IMG_TITLE` + `$MESSAGE` + image written.
 
-### 5. Screenshots
+### 4. Screenshots ✅
 
-Add actual screenshots to `assets/en/` and `assets/pt/` for the README mini-manual:
+Screenshots updated in `assets/en/` and `assets/pt/`:
 
-- `screenshot-menu-main.png`
-- `screenshot-menu-settings.png`
-- `screenshot-menu-maintenance.png`
+- `screenshot-menu-main.png` ✅
+- `screenshot-menu-settings.png` ✅
+- `screenshot-menu-maintenance.png` ✅
 
 ---
 
