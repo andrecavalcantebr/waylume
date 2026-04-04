@@ -187,6 +187,7 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 #### Gallery navigation
 
 `_gallery_navigate(next|prev|random)` in `main.sh`:
+
 - Filenames `waylume_YYYYMMDD_HHMMSS.jpg` → alphabetical sort = chronological order
 - Current wallpaper read from `gsettings`; circular index with modulo arithmetic
 - No ImageMagick: overlays already applied; only `gsettings set` + `notify-send`
@@ -243,8 +244,8 @@ APOD_API_KEY="DEMO_KEY"
 
 ## LinuxToys integration
 
-- **PR:** https://github.com/psygreg/linuxtoys/pull/399 (open, awaiting review)
-- **Fork:** https://github.com/andrecavalcantebr/linuxtoys → branch `feat/add-waylume`
+- **PR:** <https://github.com/psygreg/linuxtoys/pull/399> (open, awaiting review)
+- **Fork:** <https://github.com/andrecavalcantebr/linuxtoys> → branch `feat/add-waylume`
 - **Local clone:** `/home/andre/code/linuxtoys`
 - **Files added to linuxtoys:**
   - `p3/scripts/utils/waylume.sh` — `# nocontainer` script; runs `curl .../waylume.sh | bash -s -- --install`

@@ -77,8 +77,10 @@ To install directly without the interactive prompt:
 | 🔑 NASA API Key | Key for the APOD API (default: `DEMO_KEY`) |
 | 🖼️ Gallery limit | Maximum number of images kept on disk (0 = unlimited, default: 60) |
 
+Obs. 1:
 > **Settings flow:** Changes stay in memory until you exit the submenu. On exit (item 6 or Close button), if there are pending changes, WayLume asks whether to apply them. On confirmation, it saves and restarts the timer automatically.
 
+Obs. 2:
 > **NASA APOD tip:** The `DEMO_KEY` has a 30 req/hour limit. For continuous use, register a free key at [api.nasa.gov](https://api.nasa.gov) (limit: 1,000 req/day).
 
 ---

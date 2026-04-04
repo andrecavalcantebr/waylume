@@ -77,8 +77,10 @@ Para instalar diretamente sem a pergunta interativa:
 | 🔑 API Key da NASA | Chave para a API do APOD (padrão: `DEMO_KEY`) |
 | 🖼️ Limite da galeria | Número máximo de imagens mantidas no disco (0 = sem limite, padrão: 60) |
 
+Obs. 1:
 > **Fluxo de configuração:** as alterações ficam em memória até o usuário sair do submenu. Ao sair (item 6 ou botão Fechar), se houver mudanças, o WayLume pergunta se deseja aplicar. Ao confirmar, salva e reinicia o timer automaticamente.
 
+Obs. 2:
 > **Dica NASA APOD:** A chave `DEMO_KEY` tem limite de 30 req/hora. Para uso contínuo, registre uma chave gratuita em [api.nasa.gov](https://api.nasa.gov) (limite: 1.000 req/dia).
 
 ---
@@ -97,7 +99,7 @@ Para instalar diretamente sem a pergunta interativa:
 Seguindo o padrão XDG, tudo vai para a home do usuário:
 
 | Arquivo | Local |
-|---|---|
+| --- | --- |
 | Script principal | `~/.local/bin/waylume` |
 | Worker do Systemd | `~/.local/bin/waylume-fetch` |
 | Ícone | `~/.local/share/icons/hicolor/scalable/apps/waylume.svg` |
