@@ -13,7 +13,7 @@
 - **Git log:**
 
   ```text
-  (HEAD -> main, origin/main) — security+robustness: curl timeouts, DEST_DIR fallback, prune_gallery active-wallpaper guard, mktemp HDR_TMP, WL_MKT from locale, WL_VERSION 1.3.0; refactor _wl_daily_cap + --random pipeline fix
+  24679c3  (HEAD -> main, origin/main) security+robustness: curl timeouts, DEST_DIR fallback, prune_gallery guard, mktemp, WL_MKT from locale (v1.3.0)
   f452c65  security: replace source with _wl_read_keyval; add gallery limit and Unsplash daily cap
   3d33108  docs: update CHECKPOINT.md for session 2026-04-01 (v1.2.0 + LinuxToys PR + critical analysis)
   889737f  feat: build.sh --install flag + GNOME Dash pin on first install + waylume --version (v1.2.0)
