@@ -13,11 +13,10 @@
 - **Git log:**
 
   ```text
-  (pendente commit desta sessão)  feat: overlay toggle + remove URL brand + SHOW_OVERLAY config (v1.4.0)
-  24679c3  security+robustness: curl timeouts, DEST_DIR fallback, prune_gallery guard, mktemp, WL_MKT from locale (v1.3.0)
-  f452c65  security: replace source with _wl_read_keyval; add gallery limit and Unsplash daily cap
-  3d33108  docs: update CHECKPOINT.md for session 2026-04-01 (v1.2.0 + LinuxToys PR + critical analysis)
-  889737f  feat: build.sh --install flag + GNOME Dash pin on first install + waylume --version (v1.2.0)
+  653b2d4  feat: overlay toggle, multi-DE roadmap, and docs update (v1.4.0)
+  4e5a0c2  docs: fix markdownlint warnings in CHECKPOINT, README.en and README.pt
+  3b2e4c1  docs: update architecture decisions with modularisation and build evolution notes
+  813701c  docs: update CHECKPOINT.md with final commit hash (v1.3.0)
   ```
 
 ---
