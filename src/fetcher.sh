@@ -35,10 +35,11 @@ _wl_read_keyval() {
     done < "$_wl_file"
 }
 
-_wl_read_keyval "$HOME/.config/waylume/waylume.conf" DEST_DIR INTERVAL SOURCES APOD_API_KEY GALLERY_MAX_FILES
+_wl_read_keyval "$HOME/.config/waylume/waylume.conf" DEST_DIR INTERVAL SOURCES APOD_API_KEY GALLERY_MAX_FILES SHOW_OVERLAY
 # Fallback: if conf is missing or DEST_DIR was not set, use the XDG Pictures default.
 # Without this, DEST_DIR="" causes find to scan the service cwd (/), which is dangerous.
 DEST_DIR="${DEST_DIR:-$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")/WayLume}"
+SHOW_OVERLAY="${SHOW_OVERLAY:-true}"
 mkdir -p "$DEST_DIR"
 
 # ── i18n: detect language and load strings ────────────────────────────────────
@@ -358,20 +359,27 @@ process_image() {
         #    when expanded inside the double-quoted -annotate argument.
         DISPLAY_TITLE=$(printf '%s' "$DISPLAY_TITLE" | tr -d '\000-\037\177')
 
-        # Resize → crop → composite bar → título (NE) → brand text (NW): just one pass
-        convert "$TARGET" \
-            -resize "${SCREEN_W}x${SCREEN_H}^" \
-            -gravity Center \
-            -extent "${SCREEN_W}x${SCREEN_H}" \
-            \( -size "${SCREEN_W}x${BAR}" xc:"rgba(0,0,0,0.65)" \) \
-            -gravity North -composite \
-            -font DejaVu-Sans-Bold -pointsize 15 \
-            -fill white -gravity NorthWest -annotate +14+11 "WayLume" \
-            -font DejaVu-Sans -pointsize 13 \
-            -fill "#bbbbbb" -gravity NorthWest -annotate +14+29 "is.gd/48OrTP" \
-            -font DejaVu-Sans -pointsize 24 \
-            -fill white -gravity NorthEast -annotate +20+14 "  ${DISPLAY_TITLE}  " \
-            "$TARGET" 2>/dev/null
+        if [ "$SHOW_OVERLAY" = "true" ]; then
+            # Resize → crop → composite bar → brand (centered N) → title (NE): one pass
+            convert "$TARGET" \
+                -resize "${SCREEN_W}x${SCREEN_H}^" \
+                -gravity Center \
+                -extent "${SCREEN_W}x${SCREEN_H}" \
+                \( -size "${SCREEN_W}x${BAR}" xc:"rgba(0,0,0,0.65)" \) \
+                -gravity North -composite \
+                -font DejaVu-Sans-Bold -pointsize 15 \
+                -fill white -gravity North -annotate +0+17 "WayLume" \
+                -font DejaVu-Sans -pointsize 24 \
+                -fill white -gravity NorthEast -annotate +20+14 "  ${DISPLAY_TITLE}  " \
+                "$TARGET" 2>/dev/null
+        else
+            # Overlay disabled: just resize + center crop, no bar or text.
+            convert "$TARGET" \
+                -resize "${SCREEN_W}x${SCREEN_H}^" \
+                -gravity Center \
+                -extent "${SCREEN_W}x${SCREEN_H}" \
+                "$TARGET" 2>/dev/null
+        fi
     else
         # No title: just resize + center crop.
         convert "$TARGET" \

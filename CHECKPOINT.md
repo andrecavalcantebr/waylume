@@ -1,4 +1,4 @@
-# CHECKPOINT — Session 2026-04-04
+# CHECKPOINT — Session 2026-04-06
 
 > Read this file at the start of each session to recover development context.
 
@@ -9,15 +9,15 @@
 - **Repo:** github.com/andrecavalcantebr/waylume
 - **Branch:** main
 - **Latest commit:** see `git log` below
-- **Version:** `1.3.0`
+- **Version:** `1.4.0`
 - **Git log:**
 
   ```text
-  24679c3  (HEAD -> main, origin/main) security+robustness: curl timeouts, DEST_DIR fallback, prune_gallery guard, mktemp, WL_MKT from locale (v1.3.0)
+  (pendente commit desta sessão)  feat: overlay toggle + remove URL brand + SHOW_OVERLAY config (v1.4.0)
+  24679c3  security+robustness: curl timeouts, DEST_DIR fallback, prune_gallery guard, mktemp, WL_MKT from locale (v1.3.0)
   f452c65  security: replace source with _wl_read_keyval; add gallery limit and Unsplash daily cap
   3d33108  docs: update CHECKPOINT.md for session 2026-04-01 (v1.2.0 + LinuxToys PR + critical analysis)
   889737f  feat: build.sh --install flag + GNOME Dash pin on first install + waylume --version (v1.2.0)
-  78f987b  feat: add Wikimedia POTD source + Unsplash real author metadata (v1.1.0)
   ```
 
 ---
@@ -27,14 +27,14 @@
 ```text
 waylume/
   src/
-    main.sh       (712 lines) — installer and GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
-    fetcher.sh    (383 lines) — systemd worker (waylume-fetch); standalone-testable with: bash src/fetcher.sh
+    main.sh       (736 lines) — installer and GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
+    fetcher.sh    (441 lines) — systemd worker (waylume-fetch); standalone-testable with: bash src/fetcher.sh
     waylume.svg   ( 22 lines) — application SVG icon
     i18n/
-      pt.sh       (123 lines) — all strings in Brazilian Portuguese
-      en.sh       (125 lines) — all strings in English
+      pt.sh       (133 lines) — all strings in Brazilian Portuguese
+      en.sh       (135 lines) — all strings in English
   build.sh        ( 50 lines) — combines the above files → waylume.sh; supports --install flag
-  waylume.sh      (1365 lines) — GENERATED ARTIFACT; do not edit directly
+  waylume.sh      (1467 lines) — GENERATED ARTIFACT; do not edit directly
   linuxtoys-pr/                — material for the LinuxToys PR (see below)
     p3/scripts/utils/
       waylume.sh               — LinuxToys installer script (nocontainer)
@@ -175,7 +175,8 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 | 3 | 🌍 Image sources | `set_image_sources` |
 | 4 | 🔑 NASA API Key | `set_apod_api_key` |
 | 5 | 🖼️ Gallery limit | `set_gallery_max` |
-| 6 | 🚪 Exit | `break` → triggers apply prompt |
+| 6 | 🎨 Title overlay | `set_overlay_toggle` — label mostra estado atual (ON/OFF) |
+| 7 | 🚪 Exit | `break` → triggers apply prompt |
 
 #### Maintenance submenu
 
@@ -201,8 +202,8 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 - **Unsplash metadata:** `curl -D` captures `Picsum-ID` header → `/id/{id}/info` → real author name in title
 - **Wikimedia POTD:** 2-step API: Template:Potd/{date} → filename → imageinfo (1920px thumburl). Python3 decodes `\uXXXX` Unicode escapes in filename before `--data-urlencode`
 - **API error handling:** rate limit / invalid key → notifies user + uses local gallery + marks date (no loop)
-- **Title overlay:** ImageMagick via `-composite` (JPEG has no alpha channel)
-- **Brand strip (NorthWest):** plain text: `WayLume` (DejaVu-Sans-Bold 15pt white +14+11) + `is.gd/48OrTP` (DejaVu-Sans 13pt #bbbbbb +14+29)
+- **Title overlay:** ImageMagick via `-composite` (JPEG has no alpha channel); controlled by `SHOW_OVERLAY` config key (default `true`)
+- **Brand strip (North, centered):** `WayLume` name only (DejaVu-Sans-Bold 15pt white, centered `+0+17`); URL removed
 - **APOD:** uses `url` (960px) instead of `hdurl` (4K) — ~10x faster
 - **Bing fix (2026-03-11):** API changed `format=js` → `format=json`; added fallback to `apply_random_local` when URL is empty
 
@@ -210,6 +211,8 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 
 | Session | Bug | Fix |
 | --- | --- | --- |
+| 2026-04-06 | `process_image` | Brand strip mostrava URL `is.gd/48OrTP` — não clicável no wallpaper, parece fraude | URL removida; nome `WayLume` centralizado (`-gravity North -annotate +0+17`) |
+| 2026-04-06 | `fetcher.sh` / `main.sh` | Overlay sempre ativo, sem controle do usuário | Adicionado `SHOW_OVERLAY=true/false` no conf; `set_overlay_toggle()` no submenu Settings (item 6); header do menu principal mostra o estado atual |
 | 2026-04-04 | `source waylume.conf` / `source waylume.state` — arbitrary code execution if file tampered | `_wl_read_keyval()`: safe `key=value` parser with explicit key whitelist, no `eval` |
 | 2026-04-04 | `source "$CONF_FILE"` in `load_config()` in `main.sh` — same vector, runs in interactive user shell | `_wl_read_keyval()` defined in `main.sh`; `load_config` updated |
 | 2026-04-04 | `"fetch_${SELECTED_SOURCE,,}"` — dynamic dispatch to arbitrary function name | Replaced with `case` statement; only 4 known source names allowed; unknown → local gallery + notify |
@@ -261,8 +264,8 @@ APOD_API_KEY="DEMO_KEY"
 ### Usability — issues to address in future versions
 
 - **No thumbnail in menu** — user doesn't see the current wallpaper, only filename via `notify-send`
-- **Overlay always on** — no option to disable the title banner; hardcoded in `process_image`
-- **Brand URL in banner** (`is.gd/48OrTP`) — looks like spam, user doesn't know where it points
+- ~~**Overlay always on**~~ **FIXED (2026-04-06):** `SHOW_OVERLAY` config key + `set_overlay_toggle()` em Settings
+- ~~**Brand URL in banner**~~ **FIXED (2026-04-06):** URL removida; nome `WayLume` centralizado
 - **APOD low resolution** — uses `url` (~960px) for speed, but `hdurl` (4K) is never offered
 - **No gallery size limit** — disk fills over time; no auto-cleanup of oldest files — **FIXED (2026-04-04):** `prune_gallery()` + `GALLERY_MAX_FILES=60`
 - **No timer pause/resume** — must uninstall/reinstall to stop; no toggle
@@ -279,7 +282,7 @@ APOD_API_KEY="DEMO_KEY"
 
 ### Functionality — gaps for future versions
 
-- Option to disable/configure the title overlay and brand strip
+- ~~Option to disable/configure the title overlay and brand strip~~ **FIXED (2026-04-06)**
 - Gallery size limit (keep last N images)
 - Multi-monitor support (detect all connected resolutions)
 - `hdurl` option for APOD (opt-in for 4K)
@@ -303,15 +306,27 @@ APOD_API_KEY="DEMO_KEY"
 
 ---
 
+## Critical analysis (session 2026-04-06)
+
+| Priority | Issue | Status |
+| --- | --- | --- |
+| 🟢 1 | URL `is.gd/48OrTP` no brand strip — não clicável, parecia fraude | **FIXED** — URL removida; nome centralizado |
+| 🟢 2 | Overlay sempre ativo sem controle do usuário | **FIXED** — `SHOW_OVERLAY` + `set_overlay_toggle()` + status no header do menu |
+
+---
+
 ## Next session agenda
 
-### 1. Usability: overlay toggle option
+> See also: [ROADMAP.md](ROADMAP.md) — strategic analysis, competitive comparison, and full roadmap.
 
-Add a config key `SHOW_OVERLAY=true/false` to `waylume.conf` and honour it in `process_image`. Expose as a toggle in the Settings submenu.
+### 1. Screenshots
 
-### 2. Security / robustness — ✅ all items from 2026-04-04 analysis resolved
+Capturar novos screenshots que reflitam as mudanças da sessão 2026-04-06:
 
-### 3. Source modularisation into `src/sources/` (future)
+- `screenshot-menu-main.png` — nova linha "Título nas imagens: ativado" no header
+- `screenshot-menu-settings.png` — item 6 (Título nas imagens) e item 7 (Sair)
+
+### 2. Source modularisation into `src/sources/` (future)
 
 `fetcher.sh` is at 384 lines with 4 sources. Modularise when reaching 5+ sources or external contributors:
 
@@ -327,13 +342,20 @@ src/
 
 Each source file: input `$TARGET_PATH`, output `$IMG_TITLE` + `$MESSAGE` + image written.
 
-### 4. Screenshots ✅
+### 3. Multi-DE support implementation (Tier 1 + Tier 2)
 
-Screenshots updated in `assets/en/` and `assets/pt/`:
+See [ROADMAP.md §6](ROADMAP.md) for full analysis and code structure.
 
-- `screenshot-menu-main.png` ✅
-- `screenshot-menu-settings.png` ✅
-- `screenshot-menu-maintenance.png` ✅
+Implementation order:
+
+1. Add `_wl_set_wallpaper()` + `_wl_get_current_wallpaper()` to `src/fetcher.sh`
+2. Replace direct `gsettings` calls in `apply_wallpaper()` and `_gallery_navigate()`
+3. Wrap `pin/unpin_from_favorites()` with GNOME guard
+4. Test Tier 1: MATE + Cinnamon (zero new dependencies)
+5. Test Tier 2: KDE Plasma ≥5.26 (`plasma-apply-wallpaperimage`)
+6. Rebuild + `bash -n waylume.sh`
+
+### 4. Screenshots pendentes
 
 ---
 
@@ -346,9 +368,11 @@ Screenshots updated in `assets/en/` and `assets/pt/`:
 | `.desktop`, `.service`, `.timer` remain as heredocs in `src/main.sh` | Depend on variables interpolated at deploy time (`$INTERVAL`, `$FETCHER_SCRIPT`) |
 | `src/main.sh` not split yet | Global-state coupling is manageable at 712 lines; split into `src/lib/` warranted at ~900+ lines or first external contributor |
 | `src/fetcher.sh` not split into `src/sources/` yet | 4 sources, 1 maintainer; split warranted at 5+ sources or when contributors ask "where is source X logic?" |
-| `fetch_*` functions follow an implicit API contract | Input: `$TARGET` ($1), `$TODAY`, `$WL_MKT`, `$X_LAST_DATE`; Output: `$IMG_TITLE`, `$MESSAGE`, image at `$TARGET`, `X_LAST_DATE="$TODAY"`; helpers: `_wl_daily_cap`, `_wl_check_timeout`, `apply_random_local` |
+| `fetch_*` functions follow an implicit API contract | Input: `$TARGET` ($1), `$TODAY`,`$WL_MKT`, `$X_LAST_DATE`; Output:`$IMG_TITLE`, `$MESSAGE`, image at`$TARGET`, `X_LAST_DATE="$TODAY"`; helpers:`_wl_daily_cap`,`_wl_check_timeout`,`apply_random_local` |
 | `build.sh` (bash + inline Python) as build tool | Works; evolve to `Makefile + tools/assemble.py` when modularising sources/lib — `make` is the canonical tool for "rebuild artifact from multiple sources with explicit dependencies" |
 | Future distribution path | v1.x: `build.sh → waylume.sh`; v2.x: `Makefile + waylume.sh + tarball as GitHub release asset`; v3.x+: `Makefile + tarball` as primary if distro packaging needed |
 | i18n via `.sh` files (Option B), not gettext | No external dependencies; compatible with single distributed file |
 | Plain-text brand strip (no assets) | QR codes become illegible compressed in JPEG; SVG icon looks out of place in the overlay |
+| URL removida do brand strip | Um link não clicável numa figura não tem utilidade e parece fraude; o nome `WayLume` centralizado é suficiente como identidade |
+| `SHOW_OVERLAY` default `true` | Overlay agrega contexto (fonte, título); usuários que preferem imagem limpa podem desativar via Settings |
 | APOD uses `url` (960px) | `hdurl` (4K) caused 30s+ downloads with no perceptible visual gain |

@@ -82,7 +82,9 @@ MSG_PIN_FAVORITES="Fixar WayLume na barra de favoritos (Dash) para acesso rápid
 
 # ── main menu ─────────────────────────────────────────────────────────────────
 TITLE_MENU="WayLume - Menu"
-MSG_MENU_HEADER="Gerenciador de Wallpapers para GNOME\nGaleria Atual: %s\nAtualização: %s"
+MSG_MENU_HEADER="Gerenciador de Wallpapers para GNOME\nGaleria Atual: %s\nAtualização: %s\nTítulo nas imagens: %s"
+LABEL_OVERLAY_ON="ativado"
+LABEL_OVERLAY_OFF="desativado"
 COL_MENU_OPTION="Opção"
 COL_MENU_ACTION="Ação"
 MENU_ITEM_1="⬇️  1. Baixar nova imagem agora"
@@ -101,7 +103,14 @@ MENU_SETTINGS_2="⏱️  2. Tempo de atualização"
 MENU_SETTINGS_3="🌍 3. Fontes de imagens"
 MENU_SETTINGS_4="🔑 4. API Key da NASA"
 MENU_SETTINGS_5="�️  5. Limite da galeria"
-MENU_SETTINGS_6="🚪 6. Sair"
+MENU_SETTINGS_6_ON="🎨 6. Título nas imagens: ATIVADO"
+MENU_SETTINGS_6_OFF="🎨 6. Título nas imagens: DESATIVADO"
+MENU_SETTINGS_7="🚪 7. Sair"
+# ── set_overlay_toggle ─────────────────────────────────────────────────────────
+MSG_OVERLAY_DISABLE_PROMPT="O título nas imagens está ATIVADO.\nDesativar? As novas imagens não mostrarão o nome WayLume nem o título da imagem."
+MSG_OVERLAY_ENABLE_PROMPT="O título nas imagens está DESATIVADO.\nAtivar? As novas imagens mostrarão o nome WayLume e o título da imagem."
+MSG_OVERLAY_ON="Título nas imagens ativado. Os próximos downloads mostrarão a barra de título."
+MSG_OVERLAY_OFF="Título nas imagens desativado. Os próximos downloads não terão a barra de título."
 MSG_SETTINGS_APPLY_PROMPT="Configurações foram alteradas. Deseja aplicar agora?\nIsso também reinicia o timer com o novo intervalo."
 
 # ── submenu manutenção ────────────────────────────────────────────────────────────────────────────

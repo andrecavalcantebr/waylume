@@ -13,7 +13,7 @@ Ele foi criado para preencher a lacuna deixada por ferramentas como o Variety, q
 * **Quatro Fontes de Imagens:** Bing (Foto do Dia), NASA APOD (Astronomy Picture of the Day), Unsplash e Wikimedia Picture of the Day — escolha uma ou mais.
 * **Um Download por Fonte por Dia:** Cada fonte é limitada a uma nova imagem por dia. Nas execuções seguintes do timer, o WayLume rotaciona automaticamente pela galeria local — sem desperdício de banda.
 * **Limite da Galeria:** Número máximo de imagens configurado em disco (padrão: 60). As imagens mais antigas são removidas automaticamente após cada download.
-* **Título Sobreposto:** Quando disponível, o título da imagem é renderizado diretamente no wallpaper via ImageMagick (opcional).
+* **Título Sobreposto:** Quando disponível, o título da imagem e o nome **WayLume** são renderizados diretamente no wallpaper via ImageMagick. A sobreposição pode ser ativada ou desativada nas Configurações (padrão: ativada).
 * **Resiliência:** O Systemd Timer com `Persistent=true` garante que execuções perdidas (PC desligado) sejam recuperadas ao logar.
 * **Desinstalação Limpa:** Remove timers, scripts e configurações sem apagar sua galeria de fotos.
 * **Distribuição em Arquivo Único:** O `waylume.sh` é auto-suficiente — instalador, configurador (GUI), gerador de serviços e desinstalador, tudo em um script.
@@ -47,6 +47,35 @@ Para instalar diretamente sem a pergunta interativa:
 ./waylume.sh --install
 ```
 
+## 🗑️ Desinstalação
+
+A galeria de fotos **não é apagada** em nenhum dos procedimentos abaixo. Somente os arquivos do WayLume (scripts, timer, ícone, atalho e configurações) são removidos.
+
+### Via interface gráfica
+
+1. Abra o WayLume pelo menu de aplicativos
+2. Selecione **🔧 Manutenção**
+3. Selecione **🗑️ Remover WayLume**
+4. Confirme na janela de aviso
+
+### Via terminal (CLI)
+
+Se o WayLume já está instalado em `~/.local/bin`:
+
+```bash
+waylume --uninstall
+```
+
+Ou, a partir da pasta do código-fonte:
+
+```bash
+./waylume.sh --uninstall
+```
+
+Uma janela de confirmação será exibida antes de qualquer remoção.
+
+> **O que é removido:** scripts (`~/.local/bin/waylume*`), timer e service do systemd, ícone, atalho do menu e o diretório de configuração (`~/.config/waylume/`). A galeria de imagens permanece intacta.
+
 ## 📖 Mini-manual de uso
 
 ### Menu Principal
@@ -76,9 +105,10 @@ Para instalar diretamente sem a pergunta interativa:
 | 🌍 Fontes de imagens | **Bing** (foto do dia), **Unsplash** (aleatória), **APOD** (NASA) e/ou **Wikimedia** (foto do dia) — cada fonte baixa no máximo uma imagem nova por dia |
 | 🔑 API Key da NASA | Chave para a API do APOD (padrão: `DEMO_KEY`) |
 | 🖼️ Limite da galeria | Número máximo de imagens mantidas no disco (0 = sem limite, padrão: 60) |
+| 🎨 Título nas imagens | Ativa ou desativa a exibição do título e do nome WayLume sobre o wallpaper (padrão: ativado) |
 
 Obs. 1:
-> **Fluxo de configuração:** as alterações ficam em memória até o usuário sair do submenu. Ao sair (item 6 ou botão Fechar), se houver mudanças, o WayLume pergunta se deseja aplicar. Ao confirmar, salva e reinicia o timer automaticamente.
+> **Fluxo de configuração:** as alterações ficam em memória até o usuário sair do submenu. Ao sair (item 7 ou botão Fechar), se houver mudanças, o WayLume pergunta se deseja aplicar. Ao confirmar, salva e reinicia o timer automaticamente.
 
 Obs. 2:
 > **Dica NASA APOD:** A chave `DEMO_KEY` tem limite de 30 req/hora. Para uso contínuo, registre uma chave gratuita em [api.nasa.gov](https://api.nasa.gov) (limite: 1.000 req/dia).

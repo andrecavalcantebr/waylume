@@ -174,17 +174,19 @@ save_config() {
         echo "SOURCES=\"$SOURCES\""
         echo "APOD_API_KEY=\"$APOD_API_KEY\""
         echo "GALLERY_MAX_FILES=\"$GALLERY_MAX_FILES\""
+        echo "SHOW_OVERLAY=\"$SHOW_OVERLAY\""
     } > "$CONF_FILE"
 }
 
 # Load config from disk, applying defaults for missing keys
 load_config() {
-    _wl_read_keyval "$CONF_FILE" DEST_DIR INTERVAL SOURCES APOD_API_KEY GALLERY_MAX_FILES
+    _wl_read_keyval "$CONF_FILE" DEST_DIR INTERVAL SOURCES APOD_API_KEY GALLERY_MAX_FILES SHOW_OVERLAY
     [ -z "$DEST_DIR" ]          && DEST_DIR="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")/WayLume"
     [ -z "$INTERVAL" ]          && INTERVAL="1h"
     [ -z "$SOURCES" ]           && SOURCES="Unsplash"
     [ -z "$APOD_API_KEY" ]      && APOD_API_KEY="DEMO_KEY"
     [ -z "$GALLERY_MAX_FILES" ] && GALLERY_MAX_FILES=60
+    [ -z "$SHOW_OVERLAY" ]      && SHOW_OVERLAY="true"
 }
 
 # Write the wallpaper fetcher worker script and activate the systemd timer
@@ -471,6 +473,26 @@ set_gallery_max() {
     fi
 }
 
+# GUI: toggle the title overlay (WayLume brand + image title on wallpaper)
+set_overlay_toggle() {
+    if [ "$SHOW_OVERLAY" = "true" ]; then
+        yad_question --title="WayLume" \
+            --text="${MSG_OVERLAY_DISABLE_PROMPT:-The title overlay is currently ON.\nDisable it? Images will no longer show the WayLume brand or the image title.}"
+        [ $? -ne 0 ] && return
+        SHOW_OVERLAY="false"
+        yad_info --title="WayLume" \
+            --text="${MSG_OVERLAY_OFF:-Title overlay disabled. New downloads will not have the title bar.}"
+    else
+        yad_question --title="WayLume" \
+            --text="${MSG_OVERLAY_ENABLE_PROMPT:-The title overlay is currently OFF.\nEnable it? Images will show the WayLume brand and the image title.}"
+        [ $? -ne 0 ] && return
+        SHOW_OVERLAY="true"
+        yad_info --title="WayLume" \
+            --text="${MSG_OVERLAY_ON:-Title overlay enabled. New downloads will show the title bar.}"
+    fi
+    _WL_CONFIG_DIRTY=true
+}
+
 # Remove non-image files from the gallery
 clean_gallery() {
     local INVALID=()
@@ -568,9 +590,10 @@ menu_settings() {
             2 "${MENU_SETTINGS_2:-⏱️  2. Update interval}" \
             3 "${MENU_SETTINGS_3:-🌍 3. Image sources}" \
             4 "${MENU_SETTINGS_4:-🔑 4. NASA API Key}" \
-            5 "${MENU_SETTINGS_5:-�️  5. Gallery limit}" \
-            6 "${MENU_SETTINGS_6:-🚪 6. Exit}" \
-            --width=420 --height=360 --no-headers \
+            5 "${MENU_SETTINGS_5:-🖼️  5. Gallery limit}" \
+            6 "$([ "$SHOW_OVERLAY" = "true" ] && echo "${MENU_SETTINGS_6_ON:-🎨 6. Title overlay: ON}" || echo "${MENU_SETTINGS_6_OFF:-🎨 6. Title overlay: OFF}")" \
+            7 "${MENU_SETTINGS_7:-🚪 7. Exit}" \
+            --width=420 --height=390 --no-headers \
             "${YAD_BTN_OKC[@]}")
         CHOICE="${CHOICE%%|*}"
         [ $? -ne 0 ] || [ -z "$CHOICE" ] && break
@@ -580,7 +603,8 @@ menu_settings() {
             3) set_image_sources    ;;
             4) set_apod_api_key     ;;
             5) set_gallery_max      ;;
-            6) break                ;;
+            6) set_overlay_toggle   ;;
+            7) break                ;;
         esac
     done
 
@@ -682,7 +706,7 @@ load_config
 
 while true; do
     CHOICE=$(yad "${YAD_BASE[@]}" --list --title="${TITLE_MENU}" \
-        --text="$(printf "${MSG_MENU_HEADER:-Wallpaper Manager for GNOME\nCurrent Gallery: %s\nUpdate Interval: %s}" "$DEST_DIR" "$INTERVAL")" \
+        --text="$(printf "${MSG_MENU_HEADER:-Wallpaper Manager for GNOME\nCurrent Gallery: %s\nUpdate Interval: %s\nTitle overlay: %s}" "$DEST_DIR" "$INTERVAL" "$([ "$SHOW_OVERLAY" = "true" ] && echo "${LABEL_OVERLAY_ON:-ON}" || echo "${LABEL_OVERLAY_OFF:-OFF}")")" \
         --column="${COL_MENU_OPTION:-Option}" --column="${COL_MENU_ACTION:-Action}" --hide-column=1 --print-column=1 \
         1 "${MENU_ITEM_1:-⬇️  1. Download new image now}" \
         2 "${MENU_ITEM_2:-🎲 2. Random image from gallery}" \

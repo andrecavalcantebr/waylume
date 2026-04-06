@@ -84,7 +84,9 @@ MSG_PIN_FAVORITES="Pin WayLume to the Dash/taskbar for quick access?"
 
 # ── main menu ─────────────────────────────────────────────────────────────────
 TITLE_MENU="WayLume - Menu"
-MSG_MENU_HEADER="Wallpaper Manager for GNOME\nCurrent Gallery: %s\nUpdate Interval: %s"
+MSG_MENU_HEADER="Wallpaper Manager for GNOME\nCurrent Gallery: %s\nUpdate Interval: %s\nTitle overlay: %s"
+LABEL_OVERLAY_ON="on"
+LABEL_OVERLAY_OFF="off"
 COL_MENU_OPTION="Option"
 COL_MENU_ACTION="Action"
 MENU_ITEM_1="⬇️  1. Download new image now"
@@ -103,7 +105,14 @@ MENU_SETTINGS_2="⏱️  2. Update interval"
 MENU_SETTINGS_3="🌍 3. Image sources"
 MENU_SETTINGS_4="🔑 4. NASA API Key"
 MENU_SETTINGS_5="�️  5. Gallery limit"
-MENU_SETTINGS_6="🚪 6. Exit"
+MENU_SETTINGS_6_ON="🎨 6. Title overlay: ON"
+MENU_SETTINGS_6_OFF="🎨 6. Title overlay: OFF"
+MENU_SETTINGS_7="🚪 7. Exit"
+# ── set_overlay_toggle ─────────────────────────────────────────────────────────
+MSG_OVERLAY_DISABLE_PROMPT="The title overlay is currently ON.\nDisable it? Images will no longer show the WayLume brand or the image title."
+MSG_OVERLAY_ENABLE_PROMPT="The title overlay is currently OFF.\nEnable it? Images will show the WayLume brand and the image title."
+MSG_OVERLAY_ON="Title overlay enabled. New downloads will show the title bar."
+MSG_OVERLAY_OFF="Title overlay disabled. New downloads will not have the title bar."
 MSG_SETTINGS_APPLY_PROMPT="Settings were changed. Do you want to apply now?\nThis will also restart the timer with the new interval."
 
 # ── maintenance submenu ────────────────────────────────────────────────────────────────────────────

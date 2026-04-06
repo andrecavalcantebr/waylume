@@ -87,7 +87,7 @@ Runs interactively, called as `waylume` from the application menu (or CLI).
 | Variable | Purpose |
 | --- | --- |
 | `CONFIG_DIR`, `BIN_DIR`, `APP_DIR`, `ICON_DIR`, `SYSTEMD_DIR` | XDG-compliant install paths |
-| `DEST_DIR`, `INTERVAL`, `SOURCES`, `APOD_API_KEY` | Runtime config (loaded from `.conf`) |
+| `DEST_DIR`, `INTERVAL`, `SOURCES`, `APOD_API_KEY`, `GALLERY_MAX_FILES`, `SHOW_OVERLAY` | Runtime config (loaded from `.conf`) |
 | `YAD_BASE` | Common yad options `--class=WayLume --window-icon=...` applied to every dialog |
 | `YAD_BTN_OK`, `YAD_BTN_YN`, `YAD_BTN_OKC` | Button label presets (from i18n) |
 | `_WL_CONFIG_DIRTY` | Dirty flag for deferred save pattern (see below) |
@@ -100,14 +100,14 @@ Can also be tested standalone: `bash src/fetcher.sh`
 **Execution flow:**
 
 1. Set environment (`DBUS_SESSION_BUS_ADDRESS`, `XDG_RUNTIME_DIR`, `DISPLAY`)
-2. `_wl_read_keyval()` parses `waylume.conf` (whitelist: `DEST_DIR INTERVAL SOURCES APOD_API_KEY GALLERY_MAX_FILES`); source i18n bundle
+2. `_wl_read_keyval()` parses `waylume.conf` (whitelist: `DEST_DIR INTERVAL SOURCES APOD_API_KEY GALLERY_MAX_FILES SHOW_OVERLAY`); source i18n bundle
 3. `_wl_read_keyval()` parses `waylume.state` (whitelist: `APOD_LAST_DATE BING_LAST_DATE UNSPLASH_LAST_DATE WIKIMEDIA_LAST_DATE`)
 4. If `--random`: call `apply_random_local` and exit
 5. Otherwise: pick a random source from `$SOURCES`, call `fetch_<source>()`
 6. `save_state()` — persist updated dates
 7. `prune_gallery()` — remove oldest files if count exceeds `GALLERY_MAX_FILES`
 8. `validate_image()` — reject non-image MIME types
-9. `process_image()` — resize, crop, overlay title and brand strip
+9. `process_image()` — resize, crop; if `SHOW_OVERLAY=true`: composite semi-transparent bar + centered **WayLume** name (North, bold 15pt) + image title (NorthEast, 24pt)
 10. `apply_wallpaper()` — `gsettings set` + `notify-send`
 
 ---
@@ -134,7 +134,7 @@ Can also be tested standalone: `bash src/fetcher.sh`
 - Sets `_WL_CONFIG_DIRTY=true`
 - Does **not** call `save_config()`
 
-On submenu exit (item **6** or window close): if the flag is set, the user is asked "Apply now?". On confirmation: `save_config()` then `deploy_services()`.
+On submenu exit (item **7** or window close): if the flag is set, the user is asked “Apply now?”. On confirmation: `save_config()` then `deploy_services()`.
 
 This means a user can make multiple configuration changes and apply them all in one shot, or discard them by choosing not to apply.
 
@@ -147,7 +147,8 @@ This means a user can make multiple configuration changes and apply them all in 
 | 3 | 🌍 Image sources | `set_image_sources` | sets `SOURCES`, marks dirty |
 | 4 | 🔑 NASA API Key | `set_apod_api_key` | sets `APOD_API_KEY`, marks dirty |
 | 5 | 🖼️ Gallery limit | `set_gallery_max` | sets `GALLERY_MAX_FILES`, marks dirty |
-| 6 | 🚪 Exit | `break` | triggers apply prompt if dirty |
+| 6 | 🎨 Title overlay | `set_overlay_toggle` | toggles `SHOW_OVERLAY` (true/false), marks dirty; label shows current state (ON/OFF) |
+| 7 | 🚪 Exit | `break` | triggers apply prompt if dirty |
 
 ### Maintenance submenu
 
@@ -310,7 +311,8 @@ Key timer options:
 | i18n via `.sh` files | No external dependencies; compatible with single-file distribution |
 | `GDK_BACKEND=x11` forced | yad on native Wayland causes GDK X11 assertion errors; XWayland works correctly |
 | APOD uses `url` (960px) | `hdurl` (4K) caused 30s+ downloads with no perceptible visual gain |
-| Brand strip as plain text | QR codes become illegible compressed in JPEG |
+| Brand strip as plain text | QR codes become illegible compressed in JPEG; URL links are not clickable on a wallpaper |
+| `SHOW_OVERLAY` default `true` | Overlay adds context (source, title); users who prefer a clean wallpaper can disable via Settings |
 | `.desktop`/`.service`/`.timer` as heredocs | Depend on variables interpolated at deploy time (`$INTERVAL`, `$FETCHER_SCRIPT`) |
 | No split of `src/main.sh` by feature | Full global-state coupling; no real isolated testability gains from splitting |
 | Deferred save pattern | User can make multiple config changes and apply (or discard) them all in one step |
@@ -322,6 +324,8 @@ Key timer options:
 
 | Date | Component | Bug | Fix |
 | --- | --- | --- | --- |
+| 2026-04-06 | `process_image` | Brand strip showed `is.gd/48OrTP` URL — non-clickable on wallpaper, suspicious-looking | Removed URL; `WayLume` name centered (`-gravity North`) on the bar |
+| 2026-04-06 | `fetcher.sh` / `main.sh` | Overlay was always on with no user control | Added `SHOW_OVERLAY=true/false` config key; `set_overlay_toggle()` in Settings (item 6); main menu header shows current state |
 | 2026-04-04 | `fetcher.sh` | `source waylume.conf` / `source waylume.state` — arbitrary code execution if file tampered | Replaced with `_wl_read_keyval()`: safe `key=value` parser with explicit key whitelist, no `eval` |
 | 2026-04-04 | `main.sh` | `source "$CONF_FILE"` in `load_config()` — same vector, runs in interactive user shell | `_wl_read_keyval()` defined in `main.sh`; `load_config` updated |
 | 2026-04-04 | `fetcher.sh` | `"fetch_${SELECTED_SOURCE,,}"` — dynamic dispatch to arbitrary function name | Replaced with `case`; only 4 known source names allowed; unknown → local gallery + notify |

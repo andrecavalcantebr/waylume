@@ -174,17 +174,19 @@ save_config() {
         echo "SOURCES=\"$SOURCES\""
         echo "APOD_API_KEY=\"$APOD_API_KEY\""
         echo "GALLERY_MAX_FILES=\"$GALLERY_MAX_FILES\""
+        echo "SHOW_OVERLAY=\"$SHOW_OVERLAY\""
     } > "$CONF_FILE"
 }
 
 # Load config from disk, applying defaults for missing keys
 load_config() {
-    _wl_read_keyval "$CONF_FILE" DEST_DIR INTERVAL SOURCES APOD_API_KEY GALLERY_MAX_FILES
+    _wl_read_keyval "$CONF_FILE" DEST_DIR INTERVAL SOURCES APOD_API_KEY GALLERY_MAX_FILES SHOW_OVERLAY
     [ -z "$DEST_DIR" ]          && DEST_DIR="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")/WayLume"
     [ -z "$INTERVAL" ]          && INTERVAL="1h"
     [ -z "$SOURCES" ]           && SOURCES="Unsplash"
     [ -z "$APOD_API_KEY" ]      && APOD_API_KEY="DEMO_KEY"
     [ -z "$GALLERY_MAX_FILES" ] && GALLERY_MAX_FILES=60
+    [ -z "$SHOW_OVERLAY" ]      && SHOW_OVERLAY="true"
 }
 
 # Write the wallpaper fetcher worker script and activate the systemd timer
@@ -230,10 +232,11 @@ _wl_read_keyval() {
     done < "$_wl_file"
 }
 
-_wl_read_keyval "$HOME/.config/waylume/waylume.conf" DEST_DIR INTERVAL SOURCES APOD_API_KEY GALLERY_MAX_FILES
+_wl_read_keyval "$HOME/.config/waylume/waylume.conf" DEST_DIR INTERVAL SOURCES APOD_API_KEY GALLERY_MAX_FILES SHOW_OVERLAY
 # Fallback: if conf is missing or DEST_DIR was not set, use the XDG Pictures default.
 # Without this, DEST_DIR="" causes find to scan the service cwd (/), which is dangerous.
 DEST_DIR="${DEST_DIR:-$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")/WayLume}"
+SHOW_OVERLAY="${SHOW_OVERLAY:-true}"
 mkdir -p "$DEST_DIR"
 
 # ── i18n: detect language and load strings ────────────────────────────────────
@@ -553,20 +556,27 @@ process_image() {
         #    when expanded inside the double-quoted -annotate argument.
         DISPLAY_TITLE=$(printf '%s' "$DISPLAY_TITLE" | tr -d '\000-\037\177')
 
-        # Resize → crop → composite bar → título (NE) → brand text (NW): just one pass
-        convert "$TARGET" \
-            -resize "${SCREEN_W}x${SCREEN_H}^" \
-            -gravity Center \
-            -extent "${SCREEN_W}x${SCREEN_H}" \
-            \( -size "${SCREEN_W}x${BAR}" xc:"rgba(0,0,0,0.65)" \) \
-            -gravity North -composite \
-            -font DejaVu-Sans-Bold -pointsize 15 \
-            -fill white -gravity NorthWest -annotate +14+11 "WayLume" \
-            -font DejaVu-Sans -pointsize 13 \
-            -fill "#bbbbbb" -gravity NorthWest -annotate +14+29 "is.gd/48OrTP" \
-            -font DejaVu-Sans -pointsize 24 \
-            -fill white -gravity NorthEast -annotate +20+14 "  ${DISPLAY_TITLE}  " \
-            "$TARGET" 2>/dev/null
+        if [ "$SHOW_OVERLAY" = "true" ]; then
+            # Resize → crop → composite bar → brand (centered N) → title (NE): one pass
+            convert "$TARGET" \
+                -resize "${SCREEN_W}x${SCREEN_H}^" \
+                -gravity Center \
+                -extent "${SCREEN_W}x${SCREEN_H}" \
+                \( -size "${SCREEN_W}x${BAR}" xc:"rgba(0,0,0,0.65)" \) \
+                -gravity North -composite \
+                -font DejaVu-Sans-Bold -pointsize 15 \
+                -fill white -gravity North -annotate +0+17 "WayLume" \
+                -font DejaVu-Sans -pointsize 24 \
+                -fill white -gravity NorthEast -annotate +20+14 "  ${DISPLAY_TITLE}  " \
+                "$TARGET" 2>/dev/null
+        else
+            # Overlay disabled: just resize + center crop, no bar or text.
+            convert "$TARGET" \
+                -resize "${SCREEN_W}x${SCREEN_H}^" \
+                -gravity Center \
+                -extent "${SCREEN_W}x${SCREEN_H}" \
+                "$TARGET" 2>/dev/null
+        fi
     else
         # No title: just resize + center crop.
         convert "$TARGET" \
@@ -793,7 +803,9 @@ MSG_PIN_FAVORITES="Fixar WayLume na barra de favoritos (Dash) para acesso rápid
 
 # ── main menu ─────────────────────────────────────────────────────────────────
 TITLE_MENU="WayLume - Menu"
-MSG_MENU_HEADER="Gerenciador de Wallpapers para GNOME\nGaleria Atual: %s\nAtualização: %s"
+MSG_MENU_HEADER="Gerenciador de Wallpapers para GNOME\nGaleria Atual: %s\nAtualização: %s\nTítulo nas imagens: %s"
+LABEL_OVERLAY_ON="ativado"
+LABEL_OVERLAY_OFF="desativado"
 COL_MENU_OPTION="Opção"
 COL_MENU_ACTION="Ação"
 MENU_ITEM_1="⬇️  1. Baixar nova imagem agora"
@@ -812,7 +824,14 @@ MENU_SETTINGS_2="⏱️  2. Tempo de atualização"
 MENU_SETTINGS_3="🌍 3. Fontes de imagens"
 MENU_SETTINGS_4="🔑 4. API Key da NASA"
 MENU_SETTINGS_5="�️  5. Limite da galeria"
-MENU_SETTINGS_6="🚪 6. Sair"
+MENU_SETTINGS_6_ON="🎨 6. Título nas imagens: ATIVADO"
+MENU_SETTINGS_6_OFF="🎨 6. Título nas imagens: DESATIVADO"
+MENU_SETTINGS_7="🚪 7. Sair"
+# ── set_overlay_toggle ─────────────────────────────────────────────────────────
+MSG_OVERLAY_DISABLE_PROMPT="O título nas imagens está ATIVADO.\nDesativar? As novas imagens não mostrarão o nome WayLume nem o título da imagem."
+MSG_OVERLAY_ENABLE_PROMPT="O título nas imagens está DESATIVADO.\nAtivar? As novas imagens mostrarão o nome WayLume e o título da imagem."
+MSG_OVERLAY_ON="Título nas imagens ativado. Os próximos downloads mostrarão a barra de título."
+MSG_OVERLAY_OFF="Título nas imagens desativado. Os próximos downloads não terão a barra de título."
 MSG_SETTINGS_APPLY_PROMPT="Configurações foram alteradas. Deseja aplicar agora?\nIsso também reinicia o timer com o novo intervalo."
 
 # ── submenu manutenção ────────────────────────────────────────────────────────────────────────────
@@ -922,7 +941,9 @@ MSG_PIN_FAVORITES="Pin WayLume to the Dash/taskbar for quick access?"
 
 # ── main menu ─────────────────────────────────────────────────────────────────
 TITLE_MENU="WayLume - Menu"
-MSG_MENU_HEADER="Wallpaper Manager for GNOME\nCurrent Gallery: %s\nUpdate Interval: %s"
+MSG_MENU_HEADER="Wallpaper Manager for GNOME\nCurrent Gallery: %s\nUpdate Interval: %s\nTitle overlay: %s"
+LABEL_OVERLAY_ON="on"
+LABEL_OVERLAY_OFF="off"
 COL_MENU_OPTION="Option"
 COL_MENU_ACTION="Action"
 MENU_ITEM_1="⬇️  1. Download new image now"
@@ -941,7 +962,14 @@ MENU_SETTINGS_2="⏱️  2. Update interval"
 MENU_SETTINGS_3="🌍 3. Image sources"
 MENU_SETTINGS_4="🔑 4. NASA API Key"
 MENU_SETTINGS_5="�️  5. Gallery limit"
-MENU_SETTINGS_6="🚪 6. Exit"
+MENU_SETTINGS_6_ON="🎨 6. Title overlay: ON"
+MENU_SETTINGS_6_OFF="🎨 6. Title overlay: OFF"
+MENU_SETTINGS_7="🚪 7. Exit"
+# ── set_overlay_toggle ─────────────────────────────────────────────────────────
+MSG_OVERLAY_DISABLE_PROMPT="The title overlay is currently ON.\nDisable it? Images will no longer show the WayLume brand or the image title."
+MSG_OVERLAY_ENABLE_PROMPT="The title overlay is currently OFF.\nEnable it? Images will show the WayLume brand and the image title."
+MSG_OVERLAY_ON="Title overlay enabled. New downloads will show the title bar."
+MSG_OVERLAY_OFF="Title overlay disabled. New downloads will not have the title bar."
 MSG_SETTINGS_APPLY_PROMPT="Settings were changed. Do you want to apply now?\nThis will also restart the timer with the new interval."
 
 # ── maintenance submenu ────────────────────────────────────────────────────────────────────────────
@@ -1176,6 +1204,26 @@ set_gallery_max() {
     fi
 }
 
+# GUI: toggle the title overlay (WayLume brand + image title on wallpaper)
+set_overlay_toggle() {
+    if [ "$SHOW_OVERLAY" = "true" ]; then
+        yad_question --title="WayLume" \
+            --text="${MSG_OVERLAY_DISABLE_PROMPT:-The title overlay is currently ON.\nDisable it? Images will no longer show the WayLume brand or the image title.}"
+        [ $? -ne 0 ] && return
+        SHOW_OVERLAY="false"
+        yad_info --title="WayLume" \
+            --text="${MSG_OVERLAY_OFF:-Title overlay disabled. New downloads will not have the title bar.}"
+    else
+        yad_question --title="WayLume" \
+            --text="${MSG_OVERLAY_ENABLE_PROMPT:-The title overlay is currently OFF.\nEnable it? Images will show the WayLume brand and the image title.}"
+        [ $? -ne 0 ] && return
+        SHOW_OVERLAY="true"
+        yad_info --title="WayLume" \
+            --text="${MSG_OVERLAY_ON:-Title overlay enabled. New downloads will show the title bar.}"
+    fi
+    _WL_CONFIG_DIRTY=true
+}
+
 # Remove non-image files from the gallery
 clean_gallery() {
     local INVALID=()
@@ -1273,9 +1321,10 @@ menu_settings() {
             2 "${MENU_SETTINGS_2:-⏱️  2. Update interval}" \
             3 "${MENU_SETTINGS_3:-🌍 3. Image sources}" \
             4 "${MENU_SETTINGS_4:-🔑 4. NASA API Key}" \
-            5 "${MENU_SETTINGS_5:-�️  5. Gallery limit}" \
-            6 "${MENU_SETTINGS_6:-🚪 6. Exit}" \
-            --width=420 --height=360 --no-headers \
+            5 "${MENU_SETTINGS_5:-🖼️  5. Gallery limit}" \
+            6 "$([ "$SHOW_OVERLAY" = "true" ] && echo "${MENU_SETTINGS_6_ON:-🎨 6. Title overlay: ON}" || echo "${MENU_SETTINGS_6_OFF:-🎨 6. Title overlay: OFF}")" \
+            7 "${MENU_SETTINGS_7:-🚪 7. Exit}" \
+            --width=420 --height=390 --no-headers \
             "${YAD_BTN_OKC[@]}")
         CHOICE="${CHOICE%%|*}"
         [ $? -ne 0 ] || [ -z "$CHOICE" ] && break
@@ -1285,7 +1334,8 @@ menu_settings() {
             3) set_image_sources    ;;
             4) set_apod_api_key     ;;
             5) set_gallery_max      ;;
-            6) break                ;;
+            6) set_overlay_toggle   ;;
+            7) break                ;;
         esac
     done
 
@@ -1387,7 +1437,7 @@ load_config
 
 while true; do
     CHOICE=$(yad "${YAD_BASE[@]}" --list --title="${TITLE_MENU}" \
-        --text="$(printf "${MSG_MENU_HEADER:-Wallpaper Manager for GNOME\nCurrent Gallery: %s\nUpdate Interval: %s}" "$DEST_DIR" "$INTERVAL")" \
+        --text="$(printf "${MSG_MENU_HEADER:-Wallpaper Manager for GNOME\nCurrent Gallery: %s\nUpdate Interval: %s\nTitle overlay: %s}" "$DEST_DIR" "$INTERVAL" "$([ "$SHOW_OVERLAY" = "true" ] && echo "${LABEL_OVERLAY_ON:-ON}" || echo "${LABEL_OVERLAY_OFF:-OFF}")")" \
         --column="${COL_MENU_OPTION:-Option}" --column="${COL_MENU_ACTION:-Action}" --hide-column=1 --print-column=1 \
         1 "${MENU_ITEM_1:-⬇️  1. Download new image now}" \
         2 "${MENU_ITEM_2:-🎲 2. Random image from gallery}" \
