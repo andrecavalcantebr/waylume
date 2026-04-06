@@ -210,8 +210,8 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 
 | Session | Bug | Fix |
 | --- | --- | --- |
-| 2026-04-06 | `process_image` | Brand strip mostrava URL `is.gd/48OrTP` — não clicável no wallpaper, parece fraude | URL removida; nome `WayLume` centralizado (`-gravity North -annotate +0+17`) |
-| 2026-04-06 | `fetcher.sh` / `main.sh` | Overlay sempre ativo, sem controle do usuário | Adicionado `SHOW_OVERLAY=true/false` no conf; `set_overlay_toggle()` no submenu Settings (item 6); header do menu principal mostra o estado atual |
+| 2026-04-06 | `process_image` — Brand strip mostrava URL `is.gd/48OrTP` — não clicável no wallpaper, parece fraude | URL removida; nome `WayLume` centralizado (`-gravity North -annotate +0+17`) |
+| 2026-04-06 | `fetcher.sh` / `main.sh` — Overlay sempre ativo, sem controle do usuário | Adicionado `SHOW_OVERLAY=true/false` no conf; `set_overlay_toggle()` no submenu Settings (item 6); header do menu principal mostra o estado atual |
 | 2026-04-04 | `source waylume.conf` / `source waylume.state` — arbitrary code execution if file tampered | `_wl_read_keyval()`: safe `key=value` parser with explicit key whitelist, no `eval` |
 | 2026-04-04 | `source "$CONF_FILE"` in `load_config()` in `main.sh` — same vector, runs in interactive user shell | `_wl_read_keyval()` defined in `main.sh`; `load_config` updated |
 | 2026-04-04 | `"fetch_${SELECTED_SOURCE,,}"` — dynamic dispatch to arbitrary function name | Replaced with `case` statement; only 4 known source names allowed; unknown → local gallery + notify |
