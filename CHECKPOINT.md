@@ -234,10 +234,12 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 
 ```bash
 # ~/.config/waylume/waylume.conf
-DEST_DIR="$USER/Images/WayLume"
-INTERVAL="3h"
-SOURCES="Bing,Unsplash,APOD,Wikimedia"
+DEST_DIR="$(xdg-user-dir PICTURES)/WayLume"  # fallback: $HOME/Pictures/WayLume
+INTERVAL="1h"
+SOURCES="Unsplash"
 APOD_API_KEY="DEMO_KEY"
+GALLERY_MAX_FILES=60
+SHOW_OVERLAY="true"
 ```
 
 > ⚠️ For publishing/testing on another machine, use `DEMO_KEY` (limit: 30 req/hour).
