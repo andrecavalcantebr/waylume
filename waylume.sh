@@ -565,9 +565,9 @@ process_image() {
                 \( -size "${SCREEN_W}x${BAR}" xc:"rgba(0,0,0,0.65)" \) \
                 -gravity North -composite \
                 -font DejaVu-Sans-Bold -pointsize 15 \
-                -fill white -gravity North -annotate +0+17 "WayLume" \
+                -fill white -gravity NorthWest -annotate +20+17 " WayLume " \
                 -font DejaVu-Sans -pointsize 24 \
-                -fill white -gravity NorthEast -annotate +20+14 "  ${DISPLAY_TITLE}  " \
+                -fill white -gravity NorthEast -annotate +20+14 " ${DISPLAY_TITLE} " \
                 "$TARGET" 2>/dev/null
         else
             # Overlay disabled: just resize + center crop, no bar or text.
