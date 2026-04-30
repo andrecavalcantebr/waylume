@@ -1,10 +1,10 @@
 #!/bin/bash
 # ====================================================
 # WayLume - Minimalist Wayland Wallpaper Manager
-# Version: 1.3.0
+# Version: 1.5.0
 # ====================================================
 
-WL_VERSION="1.3.0"
+WL_VERSION="1.5.0"
 
 # --- Paths and global variables ---
 CONFIG_DIR="$HOME/.config/waylume"
@@ -324,10 +324,9 @@ prune_gallery() {
     local COUNT="${#FILES[@]}"
     (( COUNT > MAX )) || return 0
 
-    # Read the active wallpaper path (strip "file://" scheme and surrounding quotes).
+    # Read the active wallpaper path for the current DE.
     local ACTIVE
-    ACTIVE=$(gsettings get org.gnome.desktop.background picture-uri 2>/dev/null \
-        | tr -d "'" | sed 's|file://||')
+    ACTIVE=$(_wl_get_current_wallpaper)
 
     local TO_DELETE=$(( COUNT - MAX ))
     local f deleted=0
@@ -587,12 +586,81 @@ process_image() {
     fi
 }
 
-# Set the wallpaper on GNOME (light and dark schemes) and notify the user.
+# Set the wallpaper for the current desktop environment.
+# Supports: GNOME, ubuntu:GNOME, MATE, X-Cinnamon, KDE, XFCE.
+# Unknown DEs receive a best-effort GNOME schema attempt.
+_wl_set_wallpaper() {
+    local TARGET="$1"
+    case "${XDG_CURRENT_DESKTOP:-}" in
+        GNOME|ubuntu:GNOME)
+            gsettings set org.gnome.desktop.background picture-uri      "file://$TARGET"
+            gsettings set org.gnome.desktop.background picture-uri-dark "file://$TARGET" ;;
+        MATE)
+            # MATE uses a plain path — no file:// prefix.
+            gsettings set org.mate.background picture-filename "$TARGET" ;;
+        X-Cinnamon)
+            gsettings set org.cinnamon.desktop.background picture-uri      "file://$TARGET"
+            gsettings set org.cinnamon.desktop.background picture-uri-dark "file://$TARGET" ;;
+        KDE)
+            plasma-apply-wallpaperimage "$TARGET" ;;
+        XFCE)
+            # Enumerate all existing last-image properties (one per monitor/workspace)
+            # and update each one. This handles multi-monitor setups automatically
+            # without having to guess monitor names (which vary per system).
+            local -a _PROPS
+            mapfile -t _PROPS < <(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep '/last-image$')
+            if [ "${#_PROPS[@]}" -gt 0 ]; then
+                local _PROP
+                for _PROP in "${_PROPS[@]}"; do
+                    xfconf-query -c xfce4-desktop -p "$_PROP" \
+                        --create -t string -s "$TARGET" 2>/dev/null || true
+                done
+            else
+                # Fresh XFCE with no wallpaper set yet — build path from first connected monitor.
+                local _MON
+                _MON=$(xrandr --current 2>/dev/null | awk '/ connected/{print $1; exit}')
+                [ -n "$_MON" ] && xfconf-query -c xfce4-desktop \
+                    -p "/backdrop/screen0/monitor${_MON}/workspace0/last-image" \
+                    --create -t string -s "$TARGET" 2>/dev/null || true
+            fi ;;
+        *)
+            # Unknown DE — attempt GNOME schema as last resort.
+            gsettings set org.gnome.desktop.background picture-uri "file://$TARGET" 2>/dev/null || true ;;
+    esac
+}
+
+# Read the currently active wallpaper path for the current desktop environment.
+# Returns a plain filesystem path (no file:// prefix, no surrounding quotes).
+# Returns an empty string when no clean read-back is available (KDE, unknown DEs).
+_wl_get_current_wallpaper() {
+    case "${XDG_CURRENT_DESKTOP:-}" in
+        GNOME|ubuntu:GNOME)
+            gsettings get org.gnome.desktop.background picture-uri 2>/dev/null \
+                | tr -d "'" | sed 's|file://||' ;;
+        X-Cinnamon)
+            gsettings get org.cinnamon.desktop.background picture-uri 2>/dev/null \
+                | tr -d "'" | sed 's|file://||' ;;
+        MATE)
+            # MATE stores a plain path — no file:// stripping needed.
+            gsettings get org.mate.background picture-filename 2>/dev/null \
+                | tr -d "'" ;;
+        XFCE)
+            # Read the first last-image property found (primary monitor / workspace 0).
+            local _PROP
+            _PROP=$(xfconf-query -c xfce4-desktop -l 2>/dev/null \
+                | grep '/last-image$' | head -1)
+            [ -n "$_PROP" ] && xfconf-query -c xfce4-desktop -p "$_PROP" 2>/dev/null || echo "" ;;
+        KDE|*)
+            # No reliable CLI read-back for KDE; gallery navigation starts from beginning.
+            echo "" ;;
+    esac
+}
+
+# Apply the wallpaper and notify the user.
 apply_wallpaper() {
     local TARGET="$1"
     [ -f "$TARGET" ] || return
-    gsettings set org.gnome.desktop.background picture-uri      "file://$TARGET"
-    gsettings set org.gnome.desktop.background picture-uri-dark "file://$TARGET"
+    _wl_set_wallpaper "$TARGET"
     notify-send "WayLume" "$MESSAGE"
 }
 
@@ -607,6 +675,20 @@ if [ "$1" == "--random" ]; then
     # lossy JPEG re-encoding on every manual rotation.
     apply_random_local "manual"
     apply_wallpaper "$TARGET_PATH"
+    exit 0
+fi
+
+if [ "$1" == "--set-wallpaper" ]; then
+    # Mode: set a specific image as the wallpaper (called from the main GUI for
+    # gallery navigation — bypasses download and image processing).
+    [ -n "$2" ] || exit 1
+    _wl_set_wallpaper "$2"
+    exit 0
+fi
+
+if [ "$1" == "--get-current-wallpaper" ]; then
+    # Mode: print the currently active wallpaper path for the current DE.
+    _wl_get_current_wallpaper
     exit 0
 fi
 
@@ -1033,6 +1115,7 @@ EOF
 
 # Add waylume.desktop to GNOME Dash favorites (asks user; silent if not GNOME)
 pin_to_favorites() {
+    [[ "${XDG_CURRENT_DESKTOP:-}" =~ ^(GNOME|ubuntu:GNOME)$ ]] || return
     local CURRENT NEW
     CURRENT=$(gsettings get org.gnome.shell favorite-apps 2>/dev/null) || return
     # Already pinned — nothing to do
@@ -1046,6 +1129,7 @@ pin_to_favorites() {
 
 # Remove waylume.desktop from GNOME Dash favorites (silent)
 unpin_from_favorites() {
+    [[ "${XDG_CURRENT_DESKTOP:-}" =~ ^(GNOME|ubuntu:GNOME)$ ]] || return
     local CURRENT NEW
     CURRENT=$(gsettings get org.gnome.shell favorite-apps 2>/dev/null) || return
     [[ "$CURRENT" != *"waylume.desktop"* ]] && return
@@ -1279,7 +1363,8 @@ _gallery_navigate() {
     else
         # Find the currently displayed wallpaper in the sorted gallery list
         local CURRENT
-        CURRENT=$(gsettings get org.gnome.desktop.background picture-uri 2>/dev/null \
+        CURRENT=$(waylume-fetch --get-current-wallpaper 2>/dev/null || \
+            gsettings get org.gnome.desktop.background picture-uri 2>/dev/null \
             | tr -d "'" | sed 's|file://||')
         local FOUND=false
         for i in "${!FILES[@]}"; do
@@ -1300,8 +1385,10 @@ _gallery_navigate() {
     fi
 
     local TARGET="${FILES[$IDX]}"
-    gsettings set org.gnome.desktop.background picture-uri      "file://$TARGET"
-    gsettings set org.gnome.desktop.background picture-uri-dark "file://$TARGET"
+    waylume-fetch --set-wallpaper "$TARGET" 2>/dev/null || {
+        gsettings set org.gnome.desktop.background picture-uri      "file://$TARGET"
+        gsettings set org.gnome.desktop.background picture-uri-dark "file://$TARGET"
+    }
     notify-send "WayLume" "$(printf "${MSG_NAV_APPLIED:-📸 %s}" "$(basename "$TARGET")")"
 }
 

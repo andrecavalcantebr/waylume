@@ -1,6 +1,6 @@
 # WayLume — Roadmap & Critical Analysis
 
-> Last updated: 2026-04-06 · Based on v1.4.0
+> Last updated: 2026-04-30 · Based on v1.5.0
 
 ---
 
@@ -106,7 +106,7 @@ These require no architectural changes and fit the current single-file model.
 | 🟡 Low | Optional APOD hdurl (4K) | Opt-in setting for HiDPI users; download size trade-off clearly communicated |
 | 🟡 Low | Wallhaven as a source | Largest community wallpaper repository; public API with content filters |
 | 🟡 Low | Thumbnail preview in main menu | `yad --image` + `convert -thumbnail` with no new dependency |
-| 🟠 Medium | Multi-DE support: MATE + Cinnamon + KDE Plasma | MATE and Cinnamon are gsettings-compatible (different schema, same mechanism). KDE Plasma ≥5.26 adds one line (`plasma-apply-wallpaperimage`). Covers ~20% additional Linux desktop users at low risk. |
+| ✅ Done | Multi-DE support: GNOME, MATE, Cinnamon, KDE Plasma, XFCE | **Implemented in v1.5.0.** `_wl_set_wallpaper` / `_wl_get_current_wallpaper` helpers dispatch via `XDG_CURRENT_DESKTOP`; XFCE uses `xfconf-query` with automatic multi-monitor enumeration. |
 
 ### v2.x — Distribution and packaging
 
@@ -130,64 +130,38 @@ These require no architectural changes and fit the current single-file model.
 
 ---
 
-## 6. Multi-desktop Support — Expansion Plan
+## 6. Multi-desktop Support — Implementation (v1.5.0)
 
-WayLume currently uses `gsettings` exclusively — the GNOME/GLib schema API. Expanding to other desktops follows a natural, low-risk sequence from trivially compatible to architecturally distinct.
+Multi-DE support was implemented in v1.5.0. All `gsettings` calls are now routed through two helpers in `src/fetcher.sh`, and gallery navigation in `src/main.sh` uses them via the `--set-wallpaper` / `--get-current-wallpaper` CLI flags.
 
-### 6.1 Affected code locations
+### 6.1 Implemented changes
 
-| File | Function | Lines | Nature of change |
-|---|---|---|---|
-| `src/fetcher.sh` | `apply_wallpaper()` | 393–401 | **Main change point** — add `case $XDG_CURRENT_DESKTOP` dispatcher |
-| `src/main.sh` | `_gallery_navigate()` | 546–575 | **Secondary** — reads current wallpaper via `gsettings get picture-uri`; needs per-DE reader |
-| `src/main.sh` | `pin/unpin_from_favorites()` | 302–325 | **Guard only** — GNOME-only by design; wrap with `[ "${XDG_CURRENT_DESKTOP:-}" = GNOME ]` |
-| `src/fetcher.sh` | `process_image()` | — | `xrandr` resolution detection fails on native Wayland; add `kscreen-doctor --outputs` as KDE fallback |
-
-### 6.2 Expansion tiers
-
-#### Tier 1 — gsettings-compatible DEs (trivial, v1.x)
-
-These desktops use a different GSettings schema but the same mechanism. The only change is the schema key name.
-
-| Desktop | Command | Notes |
+| File | Function | Change |
 |---|---|---|
-| **MATE** | `gsettings set org.mate.background picture-filename "$TARGET"` | No `file://` prefix; path only |
-| **Cinnamon** | `gsettings set org.cinnamon.desktop.background picture-uri "file://$TARGET"` | Same as GNOME, different schema |
+| `src/fetcher.sh` | `_wl_set_wallpaper()` *(new)* | `case $XDG_CURRENT_DESKTOP` dispatcher — GNOME, ubuntu:GNOME, MATE, X-Cinnamon, KDE, XFCE, fallback |
+| `src/fetcher.sh` | `_wl_get_current_wallpaper()` *(new)* | Per-DE read-back; returns empty string for KDE (no clean CLI) |
+| `src/fetcher.sh` | `apply_wallpaper()` | Replaced 2 `gsettings` lines with `_wl_set_wallpaper "$TARGET"` |
+| `src/fetcher.sh` | `prune_gallery()` | Replaced `gsettings get` with `_wl_get_current_wallpaper` |
+| `src/fetcher.sh` | MAIN section | Added `--set-wallpaper <path>` and `--get-current-wallpaper` CLI flags |
+| `src/main.sh` | `_gallery_navigate()` | Replaced inline `gsettings get/set` with `waylume-fetch --get-current-wallpaper` / `--set-wallpaper` |
+| `src/main.sh` | `pin/unpin_from_favorites()` | Guard: `[[ "$XDG_CURRENT_DESKTOP" =~ ^(GNOME\|ubuntu:GNOME)$ ]] \|\| return` |
 
-Implementation: add two `case` arms to `apply_wallpaper()`. Zero new dependencies, zero risk.
+### 6.2 Supported desktops
 
-Gallery read-back for Cinnamon: `gsettings get org.cinnamon.desktop.background picture-uri` (trivial).
-Gallery read-back for MATE: `gsettings get org.mate.background picture-filename` (returns path, not URI).
-
-#### Tier 2 — KDE Plasma (medium effort, v1.x)
-
-KDE Plasma ≥ 5.26 (released October 2022 — covers all current stable distributions) ships `plasma-apply-wallpaperimage`:
-
-```bash
-plasma-apply-wallpaperimage "$TARGET"
-```
-
-One line, no extra dependencies, works on both X11 and Wayland sessions. Covers the current KDE audience (~8–10% Linux desktop market share).
-
-**Fallback for Plasma < 5.26** (legacy only — omitted from initial implementation; document as known limitation):
-
-```bash
-qdbus org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "
-    var allDesktops = desktops();
-    for (var i = 0; i < allDesktops.length; i++) {
-        allDesktops[i].wallpaperPlugin = 'org.kde.image';
-        allDesktops[i].currentConfigGroup = ['Wallpaper', 'org.kde.image', 'General'];
-        allDesktops[i].writeConfig('Image', 'file://$TARGET');
-    }"
-```
-
-**Gallery read-back for KDE:** No clean CLI command exists. KDE wallpaper state lives in `~/.config/plasma-org.kde.plasma.desktop-appletsrc` (INI format). Accepted limitation for v1.x: gallery navigation starts from the first image when running on KDE.
+| Desktop | Set mechanism | Read-back |
+|---|---|---|
+| GNOME / ubuntu:GNOME | `gsettings set org.gnome.desktop.background picture-uri` + `picture-uri-dark` | `gsettings get` |
+| MATE | `gsettings set org.mate.background picture-filename` (no `file://`) | `gsettings get` |
+| X-Cinnamon | `gsettings set org.cinnamon.desktop.background picture-uri` + `picture-uri-dark` | `gsettings get` |
+| KDE Plasma ≥ 5.26 | `plasma-apply-wallpaperimage "$TARGET"` | None — gallery starts from first image |
+| XFCE | `xfconf-query` — enumerates all existing `last-image` properties (multi-monitor automatic); falls back to `xrandr` monitor name on fresh install | `xfconf-query` first `last-image` property |
+| Unknown DEs | Best-effort GNOME schema (`2>/dev/null \|\| true`) | — |
 
 **Resolution detection for KDE:** `xrandr` works on X11 sessions. On Wayland: `kscreen-doctor --outputs | grep -oP 'Modes:.*?\K[0-9]+x[0-9]+'` as fallback, or expose a manual resolution setting in WayLume's config.
 
 #### Tier 3 — Complex or niche DEs (future, v2.x+)
 
-Document as known limitations for now.
+Document as known limitations for now. **XFCE has been promoted from Tier 3 to supported in v1.5.0** — the "monitor name varies per system" blocker was resolved by enumerating existing `xfconf-query` properties instead of guessing names.
 
 | Desktop | Command | Blocker |
 |---|---|---|
@@ -199,56 +173,26 @@ Document as known limitations for now.
 
 ### 6.3 Recommended implementation structure
 
-Two helper functions in `src/fetcher.sh`, replacing all direct `gsettings` calls:
+### 6.3 Known limitations after v1.5.0
 
-```bash
-_wl_set_wallpaper() {
-    local TARGET="$1"
-    case "${XDG_CURRENT_DESKTOP:-}" in
-        GNOME|ubuntu:GNOME)
-            gsettings set org.gnome.desktop.background picture-uri      "file://$TARGET"
-            gsettings set org.gnome.desktop.background picture-uri-dark "file://$TARGET" ;;
-        MATE)
-            gsettings set org.mate.background picture-filename "$TARGET" ;;
-        X-Cinnamon)
-            gsettings set org.cinnamon.desktop.background picture-uri      "file://$TARGET"
-            gsettings set org.cinnamon.desktop.background picture-uri-dark "file://$TARGET" ;;
-        KDE)
-            plasma-apply-wallpaperimage "$TARGET" ;;
-        *)
-            # Unknown DE — attempt GNOME schema as last resort
-            gsettings set org.gnome.desktop.background picture-uri "file://$TARGET" 2>/dev/null || true ;;
-    esac
-}
-
-_wl_get_current_wallpaper() {
-    case "${XDG_CURRENT_DESKTOP:-}" in
-        GNOME|ubuntu:GNOME)
-            gsettings get org.gnome.desktop.background picture-uri 2>/dev/null | tr -d "'" | sed 's|file://||' ;;
-        X-Cinnamon)
-            gsettings get org.cinnamon.desktop.background picture-uri 2>/dev/null | tr -d "'" | sed 's|file://||' ;;
-        MATE)
-            gsettings get org.mate.background picture-filename 2>/dev/null | tr -d "'" ;;
-        KDE|*)
-            echo "" ;;  # No clean read-back; gallery starts from beginning
-    esac
-}
-```
-
-`apply_wallpaper()` calls `_wl_set_wallpaper`. `_gallery_navigate()` calls `_wl_get_current_wallpaper` in place of the inline `gsettings get` at [src/main.sh](src/main.sh#L551).
-
-### 6.4 Implementation sequence
-
-1. Add `_wl_set_wallpaper()` and `_wl_get_current_wallpaper()` to `src/fetcher.sh`
-2. Replace all direct `gsettings set/get` calls in `apply_wallpaper()` and `_gallery_navigate()`
-3. Wrap `pin/unpin_from_favorites()` with GNOME guard
-4. Test Tier 1 (MATE/Cinnamon) — VM or container sufficient
-5. Test Tier 2 (KDE Plasma ≥5.26) — verify `plasma-apply-wallpaperimage` in `$PATH`
-6. Rebuild: `./build.sh` and `bash -n waylume.sh`
+| Desktop | Limitation |
+|---|---|
+| KDE Plasma | No gallery read-back — `_wl_get_current_wallpaper` returns empty; gallery navigation starts from the first image |
+| KDE Plasma < 5.26 | `plasma-apply-wallpaperimage` not available; documented as unsupported |
+| Sway / Hyprland | Require a background process (`swaybg`, `hyprpaper`) — conflicts with the systemd oneshot model |
+| Xfce multi-monitor (fresh install) | First run with no prior wallpaper configured: only the primary monitor (`xrandr head -1`) receives the wallpaper; subsequent runs update all monitors normally |
 
 ---
 
 ## 7. Positioning Summary
+
+WayLume's competitive advantage is **architectural**: it solves the Wayland stability problem not by patching a daemon, but by eliminating the daemon entirely. This advantage holds as long as:
+
+1. GNOME remains the primary Wayland desktop (strong: GNOME is the default on Fedora, Ubuntu, Debian)
+2. Systemd remains the init system on target distros (strong: all major distros)
+3. XWayland remains available for yad (medium: long-term risk as pure Wayland adoption grows)
+
+The path to wide adoption runs through **packaging** (`.deb`, AUR) and the **local folder source** — the two changes that most expand the addressable user base without requiring architectural changes.
 
 WayLume's competitive advantage is **architectural**: it solves the Wayland stability problem not by patching a daemon, but by eliminating the daemon entirely. This advantage holds as long as:
 

@@ -1,4 +1,4 @@
-# CHECKPOINT — Session 2026-04-06
+# CHECKPOINT — Session 2026-04-30
 
 > Read this file at the start of each session to recover development context.
 
@@ -9,10 +9,11 @@
 - **Repo:** github.com/andrecavalcantebr/waylume
 - **Branch:** main
 - **Latest commit:** see `git log` below
-- **Version:** `1.4.0`
+- **Version:** `1.5.0`
 - **Git log:**
 
   ```text
+  <hash>   feat: multi-DE support — GNOME, MATE, Cinnamon, KDE, XFCE (v1.5.0)
   653b2d4  feat: overlay toggle, multi-DE roadmap, and docs update (v1.4.0)
   4e5a0c2  docs: fix markdownlint warnings in CHECKPOINT, README.en and README.pt
   3b2e4c1  docs: update architecture decisions with modularisation and build evolution notes
@@ -26,21 +27,22 @@
 ```text
 waylume/
   src/
-    main.sh       (736 lines) — installer and GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
-    fetcher.sh    (441 lines) — systemd worker (waylume-fetch); standalone-testable with: bash src/fetcher.sh
-    waylume.svg   ( 22 lines) — application SVG icon
+    main.sh         (741 lines) — installer and GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
+    fetcher.sh      (523 lines) — systemd worker (waylume-fetch); multi-DE helpers; standalone-testable with: bash src/fetcher.sh
+    waylume.svg     ( 22 lines) — application SVG icon
     i18n/
-      pt.sh       (133 lines) — all strings in Brazilian Portuguese
-      en.sh       (135 lines) — all strings in English
-  build.sh        ( 50 lines) — combines the above files → waylume.sh; supports --install flag
-  waylume.sh      (1467 lines) — GENERATED ARTIFACT; do not edit directly
-  linuxtoys-pr/                — material for the LinuxToys PR (see below)
+      pt.sh         (133 lines) — all strings in Brazilian Portuguese
+      en.sh         (135 lines) — all strings in English
+  build.sh          ( 50 lines) — combines the above files → waylume.sh; supports --install flag
+  waylume.sh        (1554 lines) — GENERATED ARTIFACT; do not edit directly
+  test_multi_de.sh               — mock-based smoke tests for multi-DE dispatch (29 assertions; no DE installation required)
+  linuxtoys-pr/                  — material for the LinuxToys PR (see below)
     p3/scripts/utils/
-      waylume.sh               — LinuxToys installer script (nocontainer)
-      waylume.svg              — symlink → src/waylume.svg
+      waylume.sh                 — LinuxToys installer script (nocontainer); # desktop: gnome xfce mate x-cinnamon kde
+      waylume.svg                — symlink → src/waylume.svg
     p3/libs/lang/
-      en.json.patch            — waylume_desc to add to LinuxToys en.json
-      pt.json.patch            — waylume_desc to add to LinuxToys pt.json
+      en.json.patch              — waylume_desc to add to LinuxToys en.json
+      pt.json.patch              — waylume_desc to add to LinuxToys pt.json
   DEVELOPER.md               — technical reference for contributors
   README.md                  — language hub (links → README.pt.md and README.en.md)
   README.pt.md               — user documentation in Portuguese
@@ -343,20 +345,25 @@ src/
 
 Each source file: input `$TARGET_PATH`, output `$IMG_TITLE` + `$MESSAGE` + image written.
 
-### 3. Multi-DE support implementation (Tier 1 + Tier 2)
+### 3. Multi-DE support — DONE (v1.5.0)
 
-See [ROADMAP.md §6](ROADMAP.md) for full analysis and code structure.
+Implemented in session 2026-04-30. See [ROADMAP.md §6](ROADMAP.md) for the full implementation record.
 
-Implementation order:
+**What was done:**
+- `_wl_set_wallpaper()` + `_wl_get_current_wallpaper()` added to `src/fetcher.sh`
+- `--set-wallpaper` + `--get-current-wallpaper` CLI flags added to `waylume-fetch`
+- `apply_wallpaper()` and `prune_gallery()` refactored in `src/fetcher.sh`
+- `_gallery_navigate()` refactored in `src/main.sh`
+- `pin/unpin_from_favorites()` guarded for GNOME-only
+- XFCE support via `xfconf-query` property enumeration (multi-monitor automatic)
+- 29 mock-based smoke tests in `test_multi_de.sh` — no DE installation required
 
-1. Add `_wl_set_wallpaper()` + `_wl_get_current_wallpaper()` to `src/fetcher.sh`
-2. Replace direct `gsettings` calls in `apply_wallpaper()` and `_gallery_navigate()`
-3. Wrap `pin/unpin_from_favorites()` with GNOME guard
-4. Test Tier 1: MATE + Cinnamon (zero new dependencies)
-5. Test Tier 2: KDE Plasma ≥5.26 (`plasma-apply-wallpaperimage`)
-6. Rebuild + `bash -n waylume.sh`
+### 4. Next session priorities
 
-### 4. Screenshots pendentes
+1. **Screenshots** — capturar novos screenshots (menu principal + menu de configurações pós-v1.4.0)
+2. **Timer pause/resume** — `systemctl --user stop/start waylume.timer` no menu (🔴 High, ROADMAP §5)
+3. **Local folder as wallpaper source** — fonte para quem não quer internet (🔴 High, ROADMAP §5)
+4. **Position indicator** in gallery navigation — "Imagem 3 de 47" no notify-send (🟠 Medium)
 
 ---
 
@@ -367,10 +374,12 @@ Implementation order:
 | `waylume.sh` is a single distributed artifact | Preserves "Unix Way": `curl .../waylume.sh \| bash` works; required for LinuxToys `# nocontainer` integration |
 | `src/` holds development sources | Syntax highlighting, shellcheck, standalone testability |
 | `.desktop`, `.service`, `.timer` remain as heredocs in `src/main.sh` | Depend on variables interpolated at deploy time (`$INTERVAL`, `$FETCHER_SCRIPT`) |
-| `src/main.sh` not split yet | Global-state coupling is manageable at 712 lines; split into `src/lib/` warranted at ~900+ lines or first external contributor |
+| `src/main.sh` not split yet | Global-state coupling is manageable at 741 lines; split into `src/lib/` warranted at ~900+ lines or first external contributor |
 | `src/fetcher.sh` not split into `src/sources/` yet | 4 sources, 1 maintainer; split warranted at 5+ sources or when contributors ask "where is source X logic?" |
 | `fetch_*` functions follow an implicit API contract | Input: `$TARGET` ($1), `$TODAY`,`$WL_MKT`, `$X_LAST_DATE`; Output:`$IMG_TITLE`, `$MESSAGE`, image at`$TARGET`, `X_LAST_DATE="$TODAY"`; helpers:`_wl_daily_cap`,`_wl_check_timeout`,`apply_random_local` |
-| `build.sh` (bash + inline Python) as build tool | Works; evolve to `Makefile + tools/assemble.py` when modularising sources/lib — `make` is the canonical tool for "rebuild artifact from multiple sources with explicit dependencies" |
+| Multi-DE helpers in `fetcher.sh`, called via CLI flags from `main.sh` | `fetcher.sh` owns all wallpaper set/get logic; `main.sh` calls `waylume-fetch --set-wallpaper` / `--get-current-wallpaper` to avoid cross-file coupling |
+| XFCE uses `xfconf-query` property enumeration | Enumerating existing `last-image` properties solves multi-monitor automatically; no monitor name guessing |
+| `build.sh` (bash + inline Python) as build tool | Works; evolve to `Makefile + tools/assemble.py` when modularising sources/lib |
 | Future distribution path | v1.x: `build.sh → waylume.sh`; v2.x: `Makefile + waylume.sh + tarball as GitHub release asset`; v3.x+: `Makefile + tarball` as primary if distro packaging needed |
 | i18n via `.sh` files (Option B), not gettext | No external dependencies; compatible with single distributed file |
 | Plain-text brand strip (no assets) | QR codes become illegible compressed in JPEG; SVG icon looks out of place in the overlay |

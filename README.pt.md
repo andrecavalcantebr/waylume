@@ -2,14 +2,17 @@
 
 🌐 **Idioma / Language:** 🇧🇷 Português (atual) · [🇺🇸 English](README.en.md)
 
-WayLume é um gerenciador de papéis de parede minimalista, autônomo e de consumo zero de recursos em background, projetado especificamente para ambientes Wayland (atualmente focado no **GNOME**).
+WayLume é um gerenciador de papéis de parede minimalista, autônomo e de consumo zero de recursos em background para desktops Linux.
 
 Ele foi criado para preencher a lacuna deixada por ferramentas como o Variety, que enfrentam problemas de estabilidade no Wayland, optando por uma arquitetura robusta baseada em **Systemd Timers** e scripts nativos em vez de daemons persistentes.
+
+**Ambientes de desktop suportados:** GNOME · ubuntu:GNOME · MATE · Cinnamon · KDE Plasma ≥ 5.26 · XFCE
 
 ## ✨ Destaques
 
 * **Consumo Zero:** Não roda em background. A GUI abre apenas quando você quer configurar. O Systemd cuida do agendamento.
 * **Agnóstico de Daemon:** Ao fechar a janela, nenhuma RAM é consumida pelo WayLume.
+* **Multi-Desktop:** Funciona no GNOME, ubuntu:GNOME, MATE, Cinnamon, KDE Plasma ≥ 5.26 e XFCE — detectado automaticamente via `XDG_CURRENT_DESKTOP`.
 * **Quatro Fontes de Imagens:** Bing (Foto do Dia), NASA APOD (Astronomy Picture of the Day), Unsplash e Wikimedia Picture of the Day — escolha uma ou mais.
 * **Um Download por Fonte por Dia:** Cada fonte é limitada a uma nova imagem por dia. Nas execuções seguintes do timer, o WayLume rotaciona automaticamente pela galeria local — sem desperdício de banda.
 * **Limite da Galeria:** Número máximo de imagens configurado em disco (padrão: 60). As imagens mais antigas são removidas automaticamente após cada download.
@@ -27,6 +30,11 @@ O script tentará instalar automaticamente os pré-requisitos na primeira execu�
 * `libnotify` / `notify-send` — notificações do sistema
 * `file` — validação do tipo MIME das imagens baixadas
 * `imagemagick` *(opcional)* — sobreposição do título da imagem no wallpaper
+
+Pacotes específicos por DE (pré-instalados nos respectivos desktops):
+
+* `xfconf` — necessário no XFCE (parte da instalação padrão do XFCE)
+* `plasma-apply-wallpaperimage` — necessário no KDE Plasma ≥ 5.26 (incluído no Plasma)
 
 ## 🚀 Instalação e Uso
 

@@ -2,14 +2,17 @@
 
 🌐 **Language / Idioma:** [🇧🇷 Português](README.pt.md) · 🇺🇸 English (current)
 
-WayLume is a minimalist, self-contained, zero-background-resource wallpaper manager designed specifically for Wayland environments (currently focused on **GNOME**).
+WayLume is a minimalist, self-contained, zero-background-resource wallpaper manager for Linux desktops.
 
 It was created to fill the gap left by tools like Variety, which face stability issues under Wayland, opting for a robust architecture based on **Systemd Timers** and native scripts instead of persistent daemons.
+
+**Supported desktop environments:** GNOME · ubuntu:GNOME · MATE · Cinnamon · KDE Plasma ≥ 5.26 · XFCE
 
 ## ✨ Highlights
 
 * **Zero Resource Usage:** Doesn't run in the background. The GUI opens only when you want to configure. Systemd handles the scheduling.
 * **Daemon-Agnostic:** Once the window is closed, WayLume consumes no RAM.
+* **Multi-Desktop:** Works on GNOME, ubuntu:GNOME, MATE, Cinnamon, KDE Plasma ≥ 5.26, and XFCE — detected automatically via `XDG_CURRENT_DESKTOP`.
 * **Four Image Sources:** Bing (Photo of the Day), NASA APOD (Astronomy Picture of the Day), Unsplash, and Wikimedia Picture of the Day — choose one or more.
 * **One Download Per Source Per Day:** Every source is capped at one new image per day. On subsequent timer runs, WayLume automatically rotates through the local gallery — no bandwidth waste.
 * **Gallery Size Limit:** Configurable maximum number of images kept on disk (default: 60). Oldest images are pruned automatically after each download.
@@ -27,6 +30,11 @@ The script will attempt to install missing prerequisites on first run (requires 
 * `libnotify` / `notify-send` — system notifications
 * `file` — MIME type validation of downloaded images
 * `imagemagick` *(optional)* — title overlay on the wallpaper
+
+DE-specific packages (pre-installed on their respective desktops):
+
+* `xfconf` — required on XFCE (part of the default XFCE installation)
+* `plasma-apply-wallpaperimage` — required on KDE Plasma ≥ 5.26 (ships with Plasma)
 
 ## 🚀 Installation & Usage
 

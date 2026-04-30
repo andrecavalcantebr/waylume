@@ -11,14 +11,15 @@ This document is the technical reference for contributors and maintainers. It co
 ```text
 waylume/
   src/
-    main.sh       (712 lines) — installer + yad GUI + menu logic
-    fetcher.sh    (383 lines) — systemd oneshot worker: download, overlay, apply
+    main.sh       (741 lines) — installer + yad GUI + menu logic
+    fetcher.sh    (523 lines) — systemd oneshot worker: download, overlay, apply; multi-DE helpers
     waylume.svg   ( 22 lines) — SVG application icon
     i18n/
-      pt.sh       (123 lines) — Brazilian Portuguese string bundle
-      en.sh       (125 lines) — English string bundle
+      pt.sh       (133 lines) — Brazilian Portuguese string bundle
+      en.sh       (135 lines) — English string bundle
   build.sh        ( 50 lines) — build tool: embeds src/* into waylume.sh via Python 3
-  waylume.sh      (1365 lines) — GENERATED ARTIFACT — never edit directly
+  waylume.sh      (1554 lines) — GENERATED ARTIFACT — never edit directly
+  test_multi_de.sh — smoke tests for multi-DE dispatch (mocks; no DE installation required)
   DEVELOPER.md    — this file
   CHECKPOINT.md   — session notes and current development context
   README.md       — language hub
@@ -103,12 +104,14 @@ Can also be tested standalone: `bash src/fetcher.sh`
 2. `_wl_read_keyval()` parses `waylume.conf` (whitelist: `DEST_DIR INTERVAL SOURCES APOD_API_KEY GALLERY_MAX_FILES SHOW_OVERLAY`); source i18n bundle
 3. `_wl_read_keyval()` parses `waylume.state` (whitelist: `APOD_LAST_DATE BING_LAST_DATE UNSPLASH_LAST_DATE WIKIMEDIA_LAST_DATE`)
 4. If `--random`: call `apply_random_local` and exit
-5. Otherwise: pick a random source from `$SOURCES`, call `fetch_<source>()`
-6. `save_state()` — persist updated dates
-7. `prune_gallery()` — remove oldest files if count exceeds `GALLERY_MAX_FILES`
-8. `validate_image()` — reject non-image MIME types
-9. `process_image()` — resize, crop; if `SHOW_OVERLAY=true`: composite semi-transparent bar + centered **WayLume** name (North, bold 15pt) + image title (NorthEast, 24pt)
-10. `apply_wallpaper()` — `gsettings set` + `notify-send`
+5. If `--set-wallpaper <path>`: call `_wl_set_wallpaper` and exit (used by the main GUI for gallery navigation)
+6. If `--get-current-wallpaper`: call `_wl_get_current_wallpaper` and exit (used by main GUI)
+7. Otherwise: pick a random source from `$SOURCES`, call `fetch_<source>()`
+8. `save_state()` — persist updated dates
+9. `prune_gallery()` — remove oldest files if count exceeds `GALLERY_MAX_FILES`
+10. `validate_image()` — reject non-image MIME types
+11. `process_image()` — resize, crop; if `SHOW_OVERLAY=true`: composite semi-transparent bar + centered **WayLume** name (North, bold 15pt) + image title (NorthEast, 24pt)
+12. `apply_wallpaper()` — `_wl_set_wallpaper` + `notify-send`
 
 ---
 
@@ -165,16 +168,44 @@ This means a user can make multiple configuration changes and apply them all in 
 1. `find $DEST_DIR -type f ... | sort -z` → sorted array
    - Filenames are `waylume_YYYYMMDD_HHMMSS.jpg` → alphabetical order = chronological order
 2. If `random`: pick a random index
-3. Otherwise: read current wallpaper from `gsettings get org.gnome.desktop.background picture-uri`
+3. Otherwise: read current wallpaper via `waylume-fetch --get-current-wallpaper` (DE-aware)
 4. Find its index in the array (linear scan)
 5. If not found (wallpaper set outside WayLume): start from 0 (`next`) or `COUNT-1` (`prev`)
 6. Compute new index with circular modulo: `(IDX ± 1 + COUNT) % COUNT`
-7. `gsettings set` both `picture-uri` and `picture-uri-dark`
+7. Apply via `waylume-fetch --set-wallpaper "$TARGET"` (DE-aware; GNOME inline as fallback)
 8. `notify-send` with filename
 
 **No ImageMagick.** Images in the gallery already have overlays applied. Reprocessing would degrade JPEG quality on each navigation.
 
 `go_next_image()`, `go_prev_image()`, `go_random_image()` are thin one-line wrappers over `_gallery_navigate`.
+
+## Multi-desktop dispatch
+
+Two helpers in `src/fetcher.sh` abstract all wallpaper set/get operations:
+
+| Function | Purpose |
+| --- | --- |
+| `_wl_set_wallpaper(TARGET)` | Dispatches via `case "${XDG_CURRENT_DESKTOP:-}"` to the correct mechanism per DE |
+| `_wl_get_current_wallpaper()` | Returns current wallpaper path (plain, no `file://`); empty string when no read-back available |
+
+All code that previously called `gsettings set/get org.gnome.desktop.background` directly now routes through these helpers. `apply_wallpaper()` and `prune_gallery()` use them directly (same process). `_gallery_navigate()` in `main.sh` calls them via the `waylume-fetch --set-wallpaper` / `--get-current-wallpaper` CLI flags to avoid coupling `main.sh` to `fetcher.sh` internals.
+
+**Supported DEs and their mechanisms:**
+
+| `XDG_CURRENT_DESKTOP` | Set | Get |
+| --- | --- | --- |
+| `GNOME`, `ubuntu:GNOME` | `gsettings org.gnome.desktop.background picture-uri` + `picture-uri-dark` | `gsettings get` |
+| `MATE` | `gsettings org.mate.background picture-filename` (plain path, no `file://`) | `gsettings get` |
+| `X-Cinnamon` | `gsettings org.cinnamon.desktop.background picture-uri` + `picture-uri-dark` | `gsettings get` |
+| `KDE` | `plasma-apply-wallpaperimage "$TARGET"` | *(empty — no CLI read-back)* |
+| `XFCE` | `xfconf-query` — enumerate all `last-image` props then update each; fallback to `xrandr` monitor on fresh install | `xfconf-query` first `last-image` prop |
+| `*` (unknown) | GNOME schema, `2>/dev/null \|\| true` | *(empty)* |
+
+**Testing without installing DEs:**
+```bash
+bash test_multi_de.sh
+```
+Mocks replace `gsettings`, `xfconf-query`, `plasma-apply-wallpaperimage`, `xrandr`, and `notify-send`. `XDG_CURRENT_DESKTOP` is overridden per scenario. 29 assertions.
 
 ---
 
@@ -317,6 +348,9 @@ Key timer options:
 | No split of `src/main.sh` by feature | Full global-state coupling; no real isolated testability gains from splitting |
 | Deferred save pattern | User can make multiple config changes and apply (or discard) them all in one step |
 | Navigation in `main.sh`, not `fetcher.sh` | Navigation is instant GUI-only: no download, no ImageMagick; wrong layer for fetcher |
+| Multi-DE helpers in `fetcher.sh` | `fetcher.sh` is the primary consumer of wallpaper set/get; standalone-testable; `main.sh` calls them via CLI flags (`--set-wallpaper`, `--get-current-wallpaper`) to avoid cross-file coupling |
+| XFCE via `xfconf-query` property enumeration | Enumerating existing `last-image` properties handles multi-monitor setups automatically without guessing monitor names; `--create -t string` makes it idempotent | 
+| Mock-based DE tests | Running actual DEs in CI is impractical; injecting `$PATH` mocks + overriding `XDG_CURRENT_DESKTOP` gives deterministic coverage of all dispatch branches |
 
 ---
 
@@ -324,7 +358,7 @@ Key timer options:
 
 | Date | Component | Bug | Fix |
 | --- | --- | --- | --- |
-| 2026-04-06 | `process_image` | Brand strip showed `is.gd/48OrTP` URL — non-clickable on wallpaper, suspicious-looking | Removed URL; `WayLume` name centered (`-gravity North`) on the bar |
+| 2026-04-30 | `fetcher.sh` / `main.sh` | All `gsettings` calls hardcoded for GNOME; other DEs received black screen or no-op | Extracted to `_wl_set_wallpaper()` / `_wl_get_current_wallpaper()` helpers with `case $XDG_CURRENT_DESKTOP`; `main.sh` gallery navigation delegates via `waylume-fetch --set-wallpaper` / `--get-current-wallpaper` CLI flags; `pin/unpin_from_favorites()` guarded for GNOME-only |
 | 2026-04-06 | `fetcher.sh` / `main.sh` | Overlay was always on with no user control | Added `SHOW_OVERLAY=true/false` config key; `set_overlay_toggle()` in Settings (item 6); main menu header shows current state |
 | 2026-04-04 | `fetcher.sh` | `source waylume.conf` / `source waylume.state` — arbitrary code execution if file tampered | Replaced with `_wl_read_keyval()`: safe `key=value` parser with explicit key whitelist, no `eval` |
 | 2026-04-04 | `main.sh` | `source "$CONF_FILE"` in `load_config()` — same vector, runs in interactive user shell | `_wl_read_keyval()` defined in `main.sh`; `load_config` updated |

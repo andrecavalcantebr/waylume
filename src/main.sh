@@ -1,10 +1,10 @@
 #!/bin/bash
 # ====================================================
 # WayLume - Minimalist Wayland Wallpaper Manager
-# Version: 1.3.0
+# Version: 1.5.0
 # ====================================================
 
-WL_VERSION="1.3.0"
+WL_VERSION="1.5.0"
 
 # --- Paths and global variables ---
 CONFIG_DIR="$HOME/.config/waylume"
@@ -302,6 +302,7 @@ EOF
 
 # Add waylume.desktop to GNOME Dash favorites (asks user; silent if not GNOME)
 pin_to_favorites() {
+    [[ "${XDG_CURRENT_DESKTOP:-}" =~ ^(GNOME|ubuntu:GNOME)$ ]] || return
     local CURRENT NEW
     CURRENT=$(gsettings get org.gnome.shell favorite-apps 2>/dev/null) || return
     # Already pinned — nothing to do
@@ -315,6 +316,7 @@ pin_to_favorites() {
 
 # Remove waylume.desktop from GNOME Dash favorites (silent)
 unpin_from_favorites() {
+    [[ "${XDG_CURRENT_DESKTOP:-}" =~ ^(GNOME|ubuntu:GNOME)$ ]] || return
     local CURRENT NEW
     CURRENT=$(gsettings get org.gnome.shell favorite-apps 2>/dev/null) || return
     [[ "$CURRENT" != *"waylume.desktop"* ]] && return
@@ -548,7 +550,8 @@ _gallery_navigate() {
     else
         # Find the currently displayed wallpaper in the sorted gallery list
         local CURRENT
-        CURRENT=$(gsettings get org.gnome.desktop.background picture-uri 2>/dev/null \
+        CURRENT=$(waylume-fetch --get-current-wallpaper 2>/dev/null || \
+            gsettings get org.gnome.desktop.background picture-uri 2>/dev/null \
             | tr -d "'" | sed 's|file://||')
         local FOUND=false
         for i in "${!FILES[@]}"; do
@@ -569,8 +572,10 @@ _gallery_navigate() {
     fi
 
     local TARGET="${FILES[$IDX]}"
-    gsettings set org.gnome.desktop.background picture-uri      "file://$TARGET"
-    gsettings set org.gnome.desktop.background picture-uri-dark "file://$TARGET"
+    waylume-fetch --set-wallpaper "$TARGET" 2>/dev/null || {
+        gsettings set org.gnome.desktop.background picture-uri      "file://$TARGET"
+        gsettings set org.gnome.desktop.background picture-uri-dark "file://$TARGET"
+    }
     notify-send "WayLume" "$(printf "${MSG_NAV_APPLIED:-📸 %s}" "$(basename "$TARGET")")"
 }
 
