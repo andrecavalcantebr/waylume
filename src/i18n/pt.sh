@@ -82,9 +82,11 @@ MSG_PIN_FAVORITES="Fixar WayLume na barra de favoritos (Dash) para acesso rápid
 
 # ── main menu ─────────────────────────────────────────────────────────────────
 TITLE_MENU="WayLume - Menu"
-MSG_MENU_HEADER="Gerenciador de Wallpapers para GNOME\nGaleria Atual: %s\nAtualização: %s\nTítulo nas imagens: %s"
+MSG_MENU_HEADER="Gerenciador de Wallpapers\nGaleria Atual: %s\nAtualização: %s\nTítulo nas imagens: %s\nTimer: %s"
 LABEL_OVERLAY_ON="ativado"
 LABEL_OVERLAY_OFF="desativado"
+LABEL_TIMER_ON="ativo"
+LABEL_TIMER_OFF="pausado"
 COL_MENU_OPTION="Opção"
 COL_MENU_ACTION="Ação"
 MENU_ITEM_1="⬇️  1. Baixar nova imagem agora"
@@ -115,8 +117,14 @@ MSG_SETTINGS_APPLY_PROMPT="Configurações foram alteradas. Deseja aplicar agora
 
 # ── submenu manutenção ────────────────────────────────────────────────────────────────────────────
 TITLE_MAINTENANCE="WayLume — Manutenção"
-MENU_MAINTENANCE_1="🧹 1. Limpar galeria"
-MENU_MAINTENANCE_2="🗑️  2. Remover WayLume"
+MENU_MAINTENANCE_1_ON="⏸️ 1. Pausar timer"
+MENU_MAINTENANCE_1_OFF="▶️ 1. Retomar timer"
+MENU_MAINTENANCE_2="🧹 2. Limpar galeria"
+MENU_MAINTENANCE_3="🗑️  3. Remover WayLume"
+
+# ── toggle_timer ──────────────────────────────────────────────────────────────
+MSG_TIMER_PAUSED="⏸️ Timer pausado. Atualizações automáticas suspensas."
+MSG_TIMER_RESUMED="▶️ Timer retomado. Atualizações automáticas reiniciadas."
 
 # ── navegação na galeria ────────────────────────────────────────────────────────────────────────
 MSG_NAV_APPLIED="📸 %s"
@@ -131,4 +139,5 @@ MSG_FETCH_SOURCE_BING="Novo wallpaper baixado via Bing"
 MSG_FETCH_SOURCE_UNSPLASH="Novo wallpaper baixado via Unsplash"
 MSG_FETCH_SOURCE_APOD="Novo wallpaper baixado via APOD"
 MSG_FETCH_SOURCE_WIKIMEDIA="Novo wallpaper baixado via Wikimedia POTD"
+MSG_FETCH_SOURCE_LOCAL="🖼️ Wallpaper da galeria local"
 MSG_FETCH_TIMEOUT="⏱️ Tempo de conexão esgotado. Wallpaper não alterado. Será tentado no próximo ciclo."

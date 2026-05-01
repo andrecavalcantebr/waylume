@@ -13,7 +13,7 @@ Ele foi criado para preencher a lacuna deixada por ferramentas como o Variety, q
 * **Consumo Zero:** Não roda em background. A GUI abre apenas quando você quer configurar. O Systemd cuida do agendamento.
 * **Agnóstico de Daemon:** Ao fechar a janela, nenhuma RAM é consumida pelo WayLume.
 * **Multi-Desktop:** Funciona no GNOME, ubuntu:GNOME, MATE, Cinnamon, KDE Plasma ≥ 5.26 e XFCE — detectado automaticamente via `XDG_CURRENT_DESKTOP`.
-* **Quatro Fontes de Imagens:** Bing (Foto do Dia), NASA APOD (Astronomy Picture of the Day), Unsplash e Wikimedia Picture of the Day — escolha uma ou mais.
+* **Cinco Fontes de Imagens:** Bing (Foto do Dia), NASA APOD (Astronomy Picture of the Day), Unsplash, Wikimedia Picture of the Day e **Galeria Local** (rotaciona suas imagens sem download) — escolha uma ou mais.
 * **Um Download por Fonte por Dia:** Cada fonte é limitada a uma nova imagem por dia. Nas execuções seguintes do timer, o WayLume rotaciona automaticamente pela galeria local — sem desperdício de banda.
 * **Limite da Galeria:** Número máximo de imagens configurado em disco (padrão: 60). As imagens mais antigas são removidas automaticamente após cada download.
 * **Título Sobreposto:** Quando disponível, o título da imagem e o nome **WayLume** são renderizados diretamente no wallpaper via ImageMagick. A sobreposição pode ser ativada ou desativada nas Configurações (padrão: ativada).
@@ -110,7 +110,7 @@ Uma janela de confirmação será exibida antes de qualquer remoção.
 | --- | --- |
 | 📂 Pasta da galeria | Diretório onde as fotos são armazenadas |
 | ⏱️ Tempo de atualização | Com que frequência o timer troca o wallpaper (minutos ou horas) |
-| 🌍 Fontes de imagens | **Bing** (foto do dia), **Unsplash** (aleatória), **APOD** (NASA) e/ou **Wikimedia** (foto do dia) — cada fonte baixa no máximo uma imagem nova por dia |
+| 🌍 Fontes de imagens | **Bing** (foto do dia), **Unsplash** (aleatória), **APOD** (NASA), **Wikimedia** (foto do dia) e/ou **Local** (galeria local, sem internet) — cada fonte online baixa no máximo uma imagem nova por dia |
 | 🔑 API Key da NASA | Chave para a API do APOD (padrão: `DEMO_KEY`) |
 | 🖼️ Limite da galeria | Número máximo de imagens mantidas no disco (0 = sem limite, padrão: 60) |
 | 🎨 Título nas imagens | Ativa ou desativa a exibição do título e do nome WayLume sobre o wallpaper (padrão: ativado) |
@@ -129,6 +129,7 @@ Obs. 2:
 
 | Opção | O que faz |
 | --- | --- |
+| ⏸️/▶️ Pausar / Retomar timer | Para ou reinicia o timer automático. O wallpaper não muda enquanto pausado; retomar não apaga a galeria |
 | 🧹 Limpar galeria | Remove da galeria arquivos corrompidos ou com MIME inválido |
 | 🗑️ Remover WayLume | Desinstala completamente o WayLume. Sua galeria de fotos **não** é apagada |
 

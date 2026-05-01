@@ -13,7 +13,7 @@ It was created to fill the gap left by tools like Variety, which face stability 
 * **Zero Resource Usage:** Doesn't run in the background. The GUI opens only when you want to configure. Systemd handles the scheduling.
 * **Daemon-Agnostic:** Once the window is closed, WayLume consumes no RAM.
 * **Multi-Desktop:** Works on GNOME, ubuntu:GNOME, MATE, Cinnamon, KDE Plasma ≥ 5.26, and XFCE — detected automatically via `XDG_CURRENT_DESKTOP`.
-* **Four Image Sources:** Bing (Photo of the Day), NASA APOD (Astronomy Picture of the Day), Unsplash, and Wikimedia Picture of the Day — choose one or more.
+* **Five Image Sources:** Bing (Photo of the Day), NASA APOD (Astronomy Picture of the Day), Unsplash, Wikimedia Picture of the Day, and **Local Gallery** (rotates your existing images offline, no download) — choose one or more.
 * **One Download Per Source Per Day:** Every source is capped at one new image per day. On subsequent timer runs, WayLume automatically rotates through the local gallery — no bandwidth waste.
 * **Gallery Size Limit:** Configurable maximum number of images kept on disk (default: 60). Oldest images are pruned automatically after each download.
 * **Overlaid Title:** When available, the image title and the **WayLume** name are rendered directly onto the wallpaper via ImageMagick. The overlay can be toggled on or off in Settings (default: on).
@@ -110,7 +110,7 @@ A confirmation dialog will be shown before anything is removed.
 | --- | --- |
 | 📂 Gallery folder | Directory where photos are stored |
 | ⏱️ Update interval | How often the timer changes the wallpaper (minutes or hours) |
-| 🌍 Image sources | **Bing** (photo of the day), **Unsplash** (random), **APOD** (NASA) and/or **Wikimedia** (picture of the day) — each downloads at most one new image per day |
+| 🌍 Image sources | **Bing** (photo of the day), **Unsplash** (random), **APOD** (NASA), **Wikimedia** (picture of the day) and/or **Local** (local gallery, no internet) — each online source downloads at most one new image per day |
 | 🔑 NASA API Key | Key for the APOD API (default: `DEMO_KEY`) |
 | 🖼️ Gallery limit | Maximum number of images kept on disk (0 = unlimited, default: 60) |
 | 🎨 Title overlay | Enables or disables the image title and WayLume name displayed on the wallpaper (default: on) |
@@ -129,6 +129,7 @@ Obs. 2:
 
 | Option | What it does |
 | --- | --- |
+| ⏸️/▶️ Pause / Resume timer | Stops or restarts the automatic timer. The wallpaper won’t change while paused; resuming does not clear the gallery |
 | 🧹 Clean gallery | Removes corrupted files or files with an invalid MIME type from the gallery |
 | 🗑️ Remove WayLume | Completely uninstalls WayLume. Your photo gallery is **not** deleted |
 

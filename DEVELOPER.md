@@ -202,9 +202,11 @@ All code that previously called `gsettings set/get org.gnome.desktop.background`
 | `*` (unknown) | GNOME schema, `2>/dev/null \|\| true` | *(empty)* |
 
 **Testing without installing DEs:**
+
 ```bash
 bash test_multi_de.sh
 ```
+
 Mocks replace `gsettings`, `xfconf-query`, `plasma-apply-wallpaperimage`, `xrandr`, and `notify-send`. `XDG_CURRENT_DESKTOP` is overridden per scenario. 29 assertions.
 
 ---
@@ -349,7 +351,7 @@ Key timer options:
 | Deferred save pattern | User can make multiple config changes and apply (or discard) them all in one step |
 | Navigation in `main.sh`, not `fetcher.sh` | Navigation is instant GUI-only: no download, no ImageMagick; wrong layer for fetcher |
 | Multi-DE helpers in `fetcher.sh` | `fetcher.sh` is the primary consumer of wallpaper set/get; standalone-testable; `main.sh` calls them via CLI flags (`--set-wallpaper`, `--get-current-wallpaper`) to avoid cross-file coupling |
-| XFCE via `xfconf-query` property enumeration | Enumerating existing `last-image` properties handles multi-monitor setups automatically without guessing monitor names; `--create -t string` makes it idempotent | 
+| XFCE via `xfconf-query` property enumeration | Enumerating existing `last-image` properties handles multi-monitor setups automatically without guessing monitor names; `--create -t string` makes it idempotent |
 | Mock-based DE tests | Running actual DEs in CI is impractical; injecting `$PATH` mocks + overriding `XDG_CURRENT_DESKTOP` gives deterministic coverage of all dispatch branches |
 
 ---

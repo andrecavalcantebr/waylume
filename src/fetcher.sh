@@ -510,6 +510,12 @@ case "${SELECTED_SOURCE,,}" in
     unsplash)  fetch_unsplash  "$TARGET_PATH" ;;
     apod)      fetch_apod      "$TARGET_PATH" ;;
     wikimedia) fetch_wikimedia "$TARGET_PATH" ;;
+    local)
+        apply_random_local "Local"
+        MESSAGE="${MSG_FETCH_SOURCE_LOCAL:-🖼️ Wallpaper from local gallery}"
+        apply_wallpaper "$TARGET_PATH"
+        exit 0
+        ;;
     *)
         notify-send "WayLume ⚠️" "Unknown source: ${SELECTED_SOURCE}. Using local gallery."
         apply_random_local "$SELECTED_SOURCE"

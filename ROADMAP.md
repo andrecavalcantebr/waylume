@@ -17,7 +17,7 @@ It was born from a real gap left by Variety, which suffers from persistent insta
 ### Tools evaluated
 
 | Tool | Stars | Language | Status |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | [Variety](https://github.com/varietywalls/variety) | 1,600 | Python 3 | ⚠️ Maintenance mode |
 | [Bing GNOME Extension](https://github.com/neffo/bing-wallpaper-gnome-extension) | 358 | JavaScript | ✅ Active |
 | [Wallutils](https://github.com/xyproto/wallutils) | 516 | Go | ✅ Active |
@@ -27,16 +27,16 @@ It was born from a real gap left by Variety, which suffers from persistent insta
 ### Feature comparison
 
 | Feature | WayLume | Variety | Bing Ext. | Wallutils |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | Idle RAM usage | ✅ Zero | ❌ ~30 MB | ❌ (Shell ext.) | ✅ Zero |
 | Native Wayland | ✅ `gsettings` | ⚠️ Unstable | ✅ Native | ✅ Yes |
 | Graphical UI | ✅ yad | ✅ GTK app | ✅ GNOME native | ❌ CLI only |
 | Online sources | 4 curated | 10+ (Wallhaven, Reddit…) | 1 (Bing only) | 0 (local only) |
-| Local folder as source | ❌ | ✅ | ❌ | ✅ |
+| Local folder as source | ✅ (v1.6.0) | ✅ | ❌ | ✅ |
 | Gallery curation (fav/trash) | ❌ | ✅ | ✅ | N/A |
 | Multi-monitor support | ❌ (head -1) | ✅ | ✅ | ✅ |
 | Title overlay | ✅ (toggleable) | ✅ (quotes/clock) | ❌ | ❌ |
-| Timer pause/resume | ❌ | ✅ (tray icon) | ✅ | N/A |
+| Timer pause/resume | ✅ (Maintenance menu) | ✅ (tray icon) | ✅ | N/A |
 | Distro packages | ❌ | ✅ apt/dnf/pacman | GNOME Extensions | ✅ Arch (pacman) |
 | Installation friction | ⭐ Minimal | ⚠️ Python venv | ⭐ Extension manager | ⚠️ Compile Go |
 | Active maintenance | ✅ | ⚠️ | ✅ | ✅ |
@@ -77,9 +77,9 @@ It was born from a real gap left by Variety, which suffers from persistent insta
 
 - **No gallery curation** — no favorites or trash system. A user can't tell WayLume "never show this image again" without manually deleting the file.
 - **Blind gallery navigation** — no thumbnail preview, no position indicator ("3 of 47"). The user has no sense of where they are in the gallery.
-- **No timer pause/resume** — stopping automatic wallpaper changes requires uninstalling. A menu toggle that runs `systemctl --user stop/start waylume.timer` would solve this.
+- ~~**No timer pause/resume**~~ — **Fixed in v1.6.0:** ⏸️/▶️ toggle in the Maintenance submenu runs `systemctl --user stop/start waylume.timer`. Timer state shown in the main menu header.
 - **Overlay is baked into the image** — when an image enters the gallery, the overlay is already rendered. If the user disables the overlay later, old images still have it; new ones don't. This creates visual inconsistency when navigating the gallery.
-- **No local folder source** — a user with a personal photo collection cannot use it as a wallpaper source.
+- ~~**No local folder source**~~ — **Fixed in v1.6.0:** "Local" added as a source option in Settings; when selected, the timer rotates the existing gallery offline, with no download.
 
 ### Ecosystem and Distribution
 
@@ -97,9 +97,9 @@ It was born from a real gap left by Variety, which suffers from persistent insta
 These require no architectural changes and fit the current single-file model.
 
 | Priority | Feature | Rationale |
-|---|---|---|
-| 🔴 High | Timer pause/resume from menu | Today requires uninstalling; `systemctl --user stop/start` in the menu solves it |
-| 🔴 High | Local folder as wallpaper source | Removes the dependency on internet access; covers the largest user segment |
+| --- | --- | --- |
+| ✅ Done | Timer pause/resume from menu | **Implemented in v1.6.0.** ⏸️/▶️ toggle in Maintenance submenu; timer state shown in main menu header. |
+| ✅ Done | Local folder as wallpaper source | **Implemented in v1.6.0.** "Local" checkbox in Sources; timer rotates gallery offline; no download, no re-processing. |
 | 🟠 Medium | Gallery favorite/trash system | Allows curation; mirrors Variety and Bing Ext.; prevents unwanted images from reappearing |
 | 🟠 Medium | Position indicator in gallery navigation | "Image 3 of 47" in notify-send costs nothing and greatly improves UX |
 | 🟠 Medium | Overlay applied at display time, not baked in | Store the original image; apply overlay only at `apply_wallpaper` time via a temp file; eliminates inconsistency |
@@ -111,7 +111,7 @@ These require no architectural changes and fit the current single-file model.
 ### v2.x — Distribution and packaging
 
 | Priority | Feature | Rationale |
-|---|---|---|
+| --- | --- | --- |
 | 🔴 High | AUR package (`waylume`) | Immediate reach on Arch/Manjaro/EndeavourOS; easiest packaging path |
 | 🔴 High | GitHub Release with versioned tarball | Enables third-party packaging and reproducible installs |
 | 🟠 Medium | Debian/Ubuntu `.deb` package | Covers the largest Linux user base |
@@ -122,7 +122,7 @@ These require no architectural changes and fit the current single-file model.
 > Trigger: 5+ sources, or first external contributor, or GNOME dropping XWayland support.
 
 | Priority | Feature | Rationale |
-|---|---|---|
+| --- | --- | --- |
 | 🟠 Medium | `src/sources/` modularisation | Each source in its own file; clear interface contract; enables external contributions |
 | 🟠 Medium | Multi-monitor support | Detect all connected resolutions via `gdbus`/GSettings or Wayland protocol; one image per monitor |
 | 🟡 Low | Replace yad with zenity (or GTK4 native) | Eliminates XWayland dependency; future-proofs against GNOME dropping XWayland |
@@ -137,9 +137,9 @@ Multi-DE support was implemented in v1.5.0. All `gsettings` calls are now routed
 ### 6.1 Implemented changes
 
 | File | Function | Change |
-|---|---|---|
-| `src/fetcher.sh` | `_wl_set_wallpaper()` *(new)* | `case $XDG_CURRENT_DESKTOP` dispatcher — GNOME, ubuntu:GNOME, MATE, X-Cinnamon, KDE, XFCE, fallback |
-| `src/fetcher.sh` | `_wl_get_current_wallpaper()` *(new)* | Per-DE read-back; returns empty string for KDE (no clean CLI) |
+| --- | --- | --- |
+| `src/fetcher.sh` | `_wl_set_wallpaper()` _(new)_ | `case $XDG_CURRENT_DESKTOP` dispatcher — GNOME, ubuntu:GNOME, MATE, X-Cinnamon, KDE, XFCE, fallback |
+| `src/fetcher.sh` | `_wl_get_current_wallpaper()` _(new)_ | Per-DE read-back; returns empty string for KDE (no clean CLI) |
 | `src/fetcher.sh` | `apply_wallpaper()` | Replaced 2 `gsettings` lines with `_wl_set_wallpaper "$TARGET"` |
 | `src/fetcher.sh` | `prune_gallery()` | Replaced `gsettings get` with `_wl_get_current_wallpaper` |
 | `src/fetcher.sh` | MAIN section | Added `--set-wallpaper <path>` and `--get-current-wallpaper` CLI flags |
@@ -149,7 +149,7 @@ Multi-DE support was implemented in v1.5.0. All `gsettings` calls are now routed
 ### 6.2 Supported desktops
 
 | Desktop | Set mechanism | Read-back |
-|---|---|---|
+| --- | --- | --- |
 | GNOME / ubuntu:GNOME | `gsettings set org.gnome.desktop.background picture-uri` + `picture-uri-dark` | `gsettings get` |
 | MATE | `gsettings set org.mate.background picture-filename` (no `file://`) | `gsettings get` |
 | X-Cinnamon | `gsettings set org.cinnamon.desktop.background picture-uri` + `picture-uri-dark` | `gsettings get` |
@@ -164,7 +164,7 @@ Multi-DE support was implemented in v1.5.0. All `gsettings` calls are now routed
 Document as known limitations for now. **XFCE has been promoted from Tier 3 to supported in v1.5.0** — the "monitor name varies per system" blocker was resolved by enumerating existing `xfconf-query` properties instead of guessing names.
 
 | Desktop | Command | Blocker |
-|---|---|---|
+| --- | --- | --- |
 | **Xfce** | `xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitor{N}/workspace0/last-image -s "$TARGET"` | Monitor name varies per system; multi-monitor = multiple INI paths |
 | **LXDE** | `pcmanfm --set-wallpaper "$TARGET"` | Requires pcmanfm running; display variable issues |
 | **LXQt** | `pcmanfm-qt --set-wallpaper "$TARGET"` | Same as LXDE |
@@ -176,7 +176,7 @@ Document as known limitations for now. **XFCE has been promoted from Tier 3 to s
 ### 6.3 Known limitations after v1.5.0
 
 | Desktop | Limitation |
-|---|---|
+| --- | --- |
 | KDE Plasma | No gallery read-back — `_wl_get_current_wallpaper` returns empty; gallery navigation starts from the first image |
 | KDE Plasma < 5.26 | `plasma-apply-wallpaperimage` not available; documented as unsupported |
 | Sway / Hyprland | Require a background process (`swaybg`, `hyprpaper`) — conflicts with the systemd oneshot model |

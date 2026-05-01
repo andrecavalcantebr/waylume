@@ -404,19 +404,20 @@ set_update_interval() {
 
 # GUI: choose which image sources to use
 set_image_sources() {
-    local BING=FALSE UNSPLASH=FALSE APOD=FALSE WIKIMEDIA=FALSE
+    local BING=FALSE UNSPLASH=FALSE APOD=FALSE WIKIMEDIA=FALSE LOCAL=FALSE
     [[ "$SOURCES" == *"Bing"* ]]       && BING=TRUE
     [[ "$SOURCES" == *"Unsplash"* ]]   && UNSPLASH=TRUE
     [[ "$SOURCES" == *"APOD"* ]]       && APOD=TRUE
     [[ "$SOURCES" == *"Wikimedia"* ]]  && WIKIMEDIA=TRUE
+    [[ "$SOURCES" == *"Local"* ]]      && LOCAL=TRUE
 
     local NEW_SOURCES
     NEW_SOURCES=$(yad "${YAD_BASE[@]}" --list --checklist --title="${TITLE_SOURCES}" \
         --text="${MSG_SOURCES_PICK:-Choose where to download new images from:}" \
         --column="" --column="${COL_SOURCES_NAME:-Source}" \
-        $BING "Bing" $UNSPLASH "Unsplash" $APOD "APOD" $WIKIMEDIA "Wikimedia" \
+        $BING "Bing" $UNSPLASH "Unsplash" $APOD "APOD" $WIKIMEDIA "Wikimedia" $LOCAL "Local" \
         --print-column=2 --separator="," \
-        --width=280 --height=255 --no-headers \
+        --width=280 --height=280 --no-headers \
         "${YAD_BTN_OKC[@]}")
     # Strip trailing comma and any whitespace/newlines yad may inject between items
     NEW_SOURCES=$(echo "$NEW_SOURCES" | tr -d '[:space:]' | sed 's/,$//')
@@ -493,6 +494,17 @@ set_overlay_toggle() {
             --text="${MSG_OVERLAY_ON:-Title overlay enabled. New downloads will show the title bar.}"
     fi
     _WL_CONFIG_DIRTY=true
+}
+
+# Toggle the systemd timer on/off (pause/resume automatic wallpaper updates)
+toggle_timer() {
+    if systemctl --user is-active --quiet waylume.timer 2>/dev/null; then
+        systemctl --user stop waylume.timer
+        notify-send "WayLume" "${MSG_TIMER_PAUSED:-⏸️ Timer pausado. Atualizações automáticas suspensas.}"
+    else
+        systemctl --user start waylume.timer
+        notify-send "WayLume" "${MSG_TIMER_RESUMED:-▶️ Timer retomado. Atualizações automáticas reiniciadas.}"
+    fi
 }
 
 # Remove non-image files from the gallery
@@ -623,20 +635,22 @@ menu_settings() {
     fi
 }
 
-# Submenu: maintenance options (clean gallery, uninstall)
+# Submenu: maintenance options (timer toggle, clean gallery, uninstall)
 menu_maintenance() {
     while true; do
         CHOICE=$(yad "${YAD_BASE[@]}" --list --title="${TITLE_MAINTENANCE:-WayLume \u2014 Maintenance}" \
             --column="${COL_MENU_OPTION:-Option}" --column="${COL_MENU_ACTION:-Action}" --hide-column=1 --print-column=1 \
-            1 "${MENU_MAINTENANCE_1:-🧹 1. Clean gallery}" \
-            2 "${MENU_MAINTENANCE_2:-🗑️  2. Remove WayLume}" \
-            --width=380 --height=220 --no-headers \
+            1 "$(systemctl --user is-active --quiet waylume.timer 2>/dev/null && echo "${MENU_MAINTENANCE_1_ON:-⏸️ 1. Pausar timer}" || echo "${MENU_MAINTENANCE_1_OFF:-▶️ 1. Retomar timer}")" \
+            2 "${MENU_MAINTENANCE_2:-🧹 2. Limpar galeria}" \
+            3 "${MENU_MAINTENANCE_3:-🗑️  3. Remover WayLume}" \
+            --width=380 --height=260 --no-headers \
             "${YAD_BTN_OKC[@]}")
         CHOICE="${CHOICE%%|*}"
         [ $? -ne 0 ] || [ -z "$CHOICE" ] && break
         case "$CHOICE" in
-            1) clean_gallery ;;
-            2) uninstall     ;;
+            1) toggle_timer  ;;
+            2) clean_gallery ;;
+            3) uninstall     ;;
         esac
     done
 }
@@ -711,7 +725,7 @@ load_config
 
 while true; do
     CHOICE=$(yad "${YAD_BASE[@]}" --list --title="${TITLE_MENU}" \
-        --text="$(printf "${MSG_MENU_HEADER:-Wallpaper Manager for GNOME\nCurrent Gallery: %s\nUpdate Interval: %s\nTitle overlay: %s}" "$DEST_DIR" "$INTERVAL" "$([ "$SHOW_OVERLAY" = "true" ] && echo "${LABEL_OVERLAY_ON:-ON}" || echo "${LABEL_OVERLAY_OFF:-OFF}")")" \
+        --text="$(printf "${MSG_MENU_HEADER:-Wallpaper Manager\nCurrent Gallery: %s\nUpdate Interval: %s\nTitle overlay: %s\nTimer: %s}" "$DEST_DIR" "$INTERVAL" "$([ "$SHOW_OVERLAY" = "true" ] && echo "${LABEL_OVERLAY_ON:-ON}" || echo "${LABEL_OVERLAY_OFF:-OFF}")" "$(systemctl --user is-active --quiet waylume.timer 2>/dev/null && echo "${LABEL_TIMER_ON:-on}" || echo "${LABEL_TIMER_OFF:-paused}")")" \
         --column="${COL_MENU_OPTION:-Option}" --column="${COL_MENU_ACTION:-Action}" --hide-column=1 --print-column=1 \
         1 "${MENU_ITEM_1:-⬇️  1. Download new image now}" \
         2 "${MENU_ITEM_2:-🎲 2. Random image from gallery}" \
@@ -720,7 +734,7 @@ while true; do
         5 "${MENU_ITEM_5:-⚙️  5. Settings}" \
         6 "${MENU_ITEM_6:-🔧 6. Maintenance}" \
         7 "${MENU_ITEM_7:-🚪 7. Exit}" \
-        --width=460 --height=340 --no-headers \
+        --width=460 --height=365 --no-headers \
         "${YAD_BTN_OKC[@]}")
     CHOICE="${CHOICE%%|*}"   # strip trailing pipe yad may append
 

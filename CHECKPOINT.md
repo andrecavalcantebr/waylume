@@ -9,14 +9,14 @@
 - **Repo:** github.com/andrecavalcantebr/waylume
 - **Branch:** main
 - **Latest commit:** see `git log` below
-- **Version:** `1.5.0`
+- **Version:** `1.6.0`
 - **Git log:**
 
   ```text
+  <hash>   feat: timer pause/resume in Maintenance menu (v1.6.0)
   <hash>   feat: multi-DE support — GNOME, MATE, Cinnamon, KDE, XFCE (v1.5.0)
   653b2d4  feat: overlay toggle, multi-DE roadmap, and docs update (v1.4.0)
   4e5a0c2  docs: fix markdownlint warnings in CHECKPOINT, README.en and README.pt
-  3b2e4c1  docs: update architecture decisions with modularisation and build evolution notes
   813701c  docs: update CHECKPOINT.md with final commit hash (v1.3.0)
   ```
 
@@ -27,14 +27,14 @@
 ```text
 waylume/
   src/
-    main.sh         (741 lines) — installer and GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
-    fetcher.sh      (523 lines) — systemd worker (waylume-fetch); multi-DE helpers; standalone-testable with: bash src/fetcher.sh
+    main.sh         (755 lines) — installer and GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
+    fetcher.sh      (529 lines) — systemd worker (waylume-fetch); multi-DE helpers; standalone-testable with: bash src/fetcher.sh
     waylume.svg     ( 22 lines) — application SVG icon
     i18n/
-      pt.sh         (133 lines) — all strings in Brazilian Portuguese
-      en.sh         (135 lines) — all strings in English
+      pt.sh         (142 lines) — all strings in Brazilian Portuguese
+      en.sh         (144 lines) — all strings in English
   build.sh          ( 50 lines) — combines the above files → waylume.sh; supports --install flag
-  waylume.sh        (1554 lines) — GENERATED ARTIFACT; do not edit directly
+  waylume.sh        (1592 lines) — GENERATED ARTIFACT; do not edit directly
   test_multi_de.sh               — mock-based smoke tests for multi-DE dispatch (29 assertions; no DE installation required)
   linuxtoys-pr/                  — material for the LinuxToys PR (see below)
     p3/scripts/utils/
@@ -183,8 +183,13 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 
 | # | Option | Handler |
 | --- | --- | --- |
-| 1 | 🧹 Clean gallery | `clean_gallery` |
-| 2 | 🗑️ Remove WayLume | `uninstall` |
+| 1 | ⏸️/▶️ Pause / Resume timer | `toggle_timer` — dynamic label reflects current state |
+| 2 | 🧹 Clean gallery | `clean_gallery` |
+| 3 | 🗑️ Remove WayLume | `uninstall` |
+
+#### Sources (5)
+
+`Bing`, `Unsplash`, `APOD`, `Wikimedia`, `Local` — comma-separated in `SOURCES` conf key; selected via checklist in Settings. `Local` skips download, `validate_image` and `process_image`; rotates existing gallery offline.
 
 #### Gallery navigation
 
@@ -212,6 +217,7 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 
 | Session | Bug | Fix |
 | --- | --- | --- |
+| 2026-04-30 | Main menu `--text=` — stray `\"` appended after closing `)` was passed as a literal argument to yad, displacing all list data → empty menu items | Removed the stray `\"` in `src/main.sh`; also increased `--height` 340 → 365 for 5-line header |
 | 2026-04-06 | `process_image` — Brand strip mostrava URL `is.gd/48OrTP` — não clicável no wallpaper, parece fraude | URL removida; nome `WayLume` centralizado (`-gravity North -annotate +0+17`) |
 | 2026-04-06 | `fetcher.sh` / `main.sh` — Overlay sempre ativo, sem controle do usuário | Adicionado `SHOW_OVERLAY=true/false` no conf; `set_overlay_toggle()` no submenu Settings (item 6); header do menu principal mostra o estado atual |
 | 2026-04-04 | `source waylume.conf` / `source waylume.state` — arbitrary code execution if file tampered | `_wl_read_keyval()`: safe `key=value` parser with explicit key whitelist, no `eval` |
@@ -271,7 +277,8 @@ SHOW_OVERLAY="true"
 - ~~**Brand URL in banner**~~ **FIXED (2026-04-06):** URL removida; nome `WayLume` centralizado
 - **APOD low resolution** — uses `url` (~960px) for speed, but `hdurl` (4K) is never offered
 - **No gallery size limit** — disk fills over time; no auto-cleanup of oldest files — **FIXED (2026-04-04):** `prune_gallery()` + `GALLERY_MAX_FILES=60`
-- **No timer pause/resume** — must uninstall/reinstall to stop; no toggle
+- ~~**No timer pause/resume**~~ — **FIXED (v1.6.0):** ⏸️/▶️ toggle in Maintenance submenu; `systemctl --user stop/start waylume.timer`; timer state in main menu header
+- ~~**No local folder source**~~ — **FIXED (v1.6.0):** "Local" added as a source option; timer rotates gallery offline, no download.
 - **Multiple monitors** — `process_image` uses only `head -1` monitor from `xrandr`
 - **xrandr fallback** — if `xrandr` fails (pure Wayland without XWayland), `process_image` exits silently with no resize
 
@@ -286,10 +293,11 @@ SHOW_OVERLAY="true"
 ### Functionality — gaps for future versions
 
 - ~~Option to disable/configure the title overlay and brand strip~~ **FIXED (2026-04-06)**
-- Gallery size limit (keep last N images)
+- ~~Gallery size limit (keep last N images)~~ **FIXED (2026-04-04)**
 - Multi-monitor support (detect all connected resolutions)
 - `hdurl` option for APOD (opt-in for 4K)
-- Timer pause/resume without uninstalling
+- ~~Timer pause/resume without uninstalling~~ **FIXED (v1.6.0)**
+- ~~Local folder as wallpaper source~~ **FIXED (v1.6.0)**
 - In-menu thumbnail preview of current wallpaper (yad supports `--image`)
 
 ---
@@ -318,52 +326,12 @@ SHOW_OVERLAY="true"
 
 ---
 
-## Next session agenda
+## Next session priorities
 
 > See also: [ROADMAP.md](ROADMAP.md) — strategic analysis, competitive comparison, and full roadmap.
 
-### 1. Screenshots
-
-Capturar novos screenshots que reflitam as mudanças da sessão 2026-04-06:
-
-- `screenshot-menu-main.png` — nova linha "Título nas imagens: ativado" no header
-- `screenshot-menu-settings.png` — item 6 (Título nas imagens) e item 7 (Sair)
-
-### 2. Source modularisation into `src/sources/` (future)
-
-`fetcher.sh` is at 384 lines with 4 sources. Modularise when reaching 5+ sources or external contributors:
-
-```text
-src/
-  sources/
-    bing.sh
-    unsplash.sh
-    apod.sh
-    wikimedia.sh
-  fetcher.sh   ← thin orchestrator (~60 lines)
-```
-
-Each source file: input `$TARGET_PATH`, output `$IMG_TITLE` + `$MESSAGE` + image written.
-
-### 3. Multi-DE support — DONE (v1.5.0)
-
-Implemented in session 2026-04-30. See [ROADMAP.md §6](ROADMAP.md) for the full implementation record.
-
-**What was done:**
-- `_wl_set_wallpaper()` + `_wl_get_current_wallpaper()` added to `src/fetcher.sh`
-- `--set-wallpaper` + `--get-current-wallpaper` CLI flags added to `waylume-fetch`
-- `apply_wallpaper()` and `prune_gallery()` refactored in `src/fetcher.sh`
-- `_gallery_navigate()` refactored in `src/main.sh`
-- `pin/unpin_from_favorites()` guarded for GNOME-only
-- XFCE support via `xfconf-query` property enumeration (multi-monitor automatic)
-- 29 mock-based smoke tests in `test_multi_de.sh` — no DE installation required
-
-### 4. Next session priorities
-
-1. **Screenshots** — capturar novos screenshots (menu principal + menu de configurações pós-v1.4.0)
-2. **Timer pause/resume** — `systemctl --user stop/start waylume.timer` no menu (🔴 High, ROADMAP §5)
-3. **Local folder as wallpaper source** — fonte para quem não quer internet (🔴 High, ROADMAP §5)
-4. **Position indicator** in gallery navigation — "Imagem 3 de 47" no notify-send (🟠 Medium)
+1. **Position indicator** in gallery navigation — "Imagem 3 de 47" no notify-send (🟠 Medium)
+2. **Source modularisation** — split `fetcher.sh` into `src/sources/{bing,unsplash,apod,wikimedia}.sh`; thin orchestrator; warranted at 5+ sources or first external contributor
 
 ---
 
