@@ -100,7 +100,7 @@ _wl_daily_cap() {
 _wl_check_timeout() {
     (( $1 == 28 )) || return 0
     notify-send "WayLume ⏱️" "${MSG_FETCH_TIMEOUT:-⏱️ Connection timed out. Wallpaper not changed.}"
-    exit 0
+    exit 1   # signal failure to the caller (run_with_progress / systemd)
 }
 
 # Persist updated download dates to state file.
@@ -317,7 +317,7 @@ validate_image() {
     if [[ "$MIME" != image/* ]]; then
         notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME:-⚠️ Invalid download ignored (%s). Please try again.}" "$MIME")"
         rm -f "$TARGET"
-        exit 0   # handled — bad download removed, timer will retry later
+        exit 1   # failure — bad download; caller shows no "success" dialog
     fi
 }
 

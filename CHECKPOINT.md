@@ -1,4 +1,4 @@
-# CHECKPOINT — Session 2026-04-30
+# CHECKPOINT — Session 2026-05-13
 
 > Read this file at the start of each session to recover development context.
 
@@ -9,15 +9,15 @@
 - **Repo:** github.com/andrecavalcantebr/waylume
 - **Branch:** main
 - **Latest commit:** see `git log` below
-- **Version:** `1.6.0`
+- **Version:** `1.7.0`
 - **Git log:**
 
   ```text
+  <hash>   fix: progress dialog pipe fd leak + exit codes + conditional success (v1.7.0)
+  <hash>   feat: zenity migration — Wayland-native GUI (v1.7.0)
   <hash>   feat: timer pause/resume in Maintenance menu (v1.6.0)
   <hash>   feat: multi-DE support — GNOME, MATE, Cinnamon, KDE, XFCE (v1.5.0)
   653b2d4  feat: overlay toggle, multi-DE roadmap, and docs update (v1.4.0)
-  4e5a0c2  docs: fix markdownlint warnings in CHECKPOINT, README.en and README.pt
-  813701c  docs: update CHECKPOINT.md with final commit hash (v1.3.0)
   ```
 
 ---
@@ -27,14 +27,14 @@
 ```text
 waylume/
   src/
-    main.sh         (755 lines) — installer and GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
+    main.sh         (778 lines) — installer and GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
     fetcher.sh      (529 lines) — systemd worker (waylume-fetch); multi-DE helpers; standalone-testable with: bash src/fetcher.sh
     waylume.svg     ( 22 lines) — application SVG icon
     i18n/
       pt.sh         (142 lines) — all strings in Brazilian Portuguese
       en.sh         (144 lines) — all strings in English
   build.sh          ( 50 lines) — combines the above files → waylume.sh; supports --install flag
-  waylume.sh        (1592 lines) — GENERATED ARTIFACT; do not edit directly
+  waylume.sh        (1615 lines) — GENERATED ARTIFACT; do not edit directly
   test_multi_de.sh               — mock-based smoke tests for multi-DE dispatch (29 assertions; no DE installation required)
   linuxtoys-pr/                  — material for the LinuxToys PR (see below)
     p3/scripts/utils/
@@ -226,6 +226,10 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 | 2026-04-04 | `IMG_TITLE` in `convert -annotate` — bare `%` expanded as ImageMagick format specifier; control chars misalign overlay | `${...//%/%%}` + `tr -d \000-\037\177` applied to `DISPLAY_TITLE` in `process_image` |
 | 2026-04-04 | Unsplash downloaded on every timer tick — gallery grew unboundedly | Added `UNSPLASH_LAST_DATE` state; now capped at 1 download/day like other sources |
 | 2026-04-04 | Gallery grew without bound; no auto-cleanup | Added `prune_gallery()` in fetcher + `GALLERY_MAX_FILES` config (default 60); exposed as Settings item |
+| 2026-05-13 | `run_with_progress` — fd 3 herdado por subprocess do fetcher (e por `curl`, `convert`) → zenity nunca recebia EOF → app travado | `"$@" 3>&- &`: fd 3 fechado no subprocess antes do fork |
+| 2026-05-13 | `_wl_check_timeout` — `exit 0` em timeout mascarava falha; `run_with_progress` reportava sucesso erroneamente | Alterado para `exit 1`; RC correto propagado |
+| 2026-05-13 | `validate_image` — `exit 0` em MIME inválido mascarava falha idêntico ao anterior | Alterado para `exit 1` |
+| 2026-05-13 | `fetch_and_apply_wallpaper` — diálogo de sucesso exibido incondicionalmente | Condicional: `if run_with_progress ...; then yad_info ...` |
 | 2026-04-04 | `--random` mode called `validate_image` + `process_image` on already-processed files — JPEG re-encoded (lossy) on every gallery rotation | Early exit: `apply_random_local + apply_wallpaper + exit 0`; pipeline bypassed for `--random` |
 | 2026-04-04 | Daily cap check repeated verbatim (3 lines) in all 4 `fetch_*` functions | Extracted to `_wl_daily_cap()` helper (indirect expansion `${!2}`); each source: `_wl_daily_cap "X" X_LAST_DATE && return` |
 | 2026-04-01 | Wikimedia: `\uXXXX` in filename → `--data-urlencode` sent literal `%5Cu00ed` → empty `thumburl` | Python3 decode before Step 2 curl call |
@@ -326,6 +330,17 @@ SHOW_OVERLAY="true"
 
 ---
 
+## Critical analysis (session 2026-05-13)
+
+| Priority | Issue | Status |
+| --- | --- | --- |
+| 🔴 1 | `run_with_progress` — fd 3 (write-end do pipe do progresso) herdado pelo processo do fetcher e por todos os seus filhos (`curl`, `convert`, `gsettings`). Como o subprocess não fechava explicitamente o fd, o zenity nunca recebia EOF → barra travada, app bloqueado | **FIXED** — `"$@" 3>&- &`: fd 3 fechado no subprocess antes do fork; o pipe pertence exclusivamente ao loop de progresso da shell pai |
+| 🔴 2 | `_wl_check_timeout` retornava `exit 0` em timeout de rede — `run_with_progress` reportava sucesso; diálogo "aplicado com sucesso!" aparecia mesmo sem wallpaper alterado | **FIXED** — `exit 1` em `_wl_check_timeout`; RC correto propagado ao chamador |
+| 🔴 3 | `validate_image` retornava `exit 0` em download inválido (MIME incorreto) — mesmo problema: RC=0 mascarava falha | **FIXED** — `exit 1` em `validate_image` após `rm -f "$TARGET"` |
+| 🟠 4 | `fetch_and_apply_wallpaper` exibia diálogo de sucesso incondicionalmente mesmo quando `run_with_progress` retornava falha | **FIXED** — diálogo de sucesso agora dentro de `if run_with_progress ...; then` |
+
+---
+
 ## Next session priorities
 
 > See also: [ROADMAP.md](ROADMAP.md) — strategic analysis, competitive comparison, and full roadmap.
@@ -344,7 +359,7 @@ SHOW_OVERLAY="true"
 | `.desktop`, `.service`, `.timer` remain as heredocs in `src/main.sh` | Depend on variables interpolated at deploy time (`$INTERVAL`, `$FETCHER_SCRIPT`) |
 | `src/main.sh` not split yet | Global-state coupling is manageable at 741 lines; split into `src/lib/` warranted at ~900+ lines or first external contributor |
 | `src/fetcher.sh` not split into `src/sources/` yet | 4 sources, 1 maintainer; split warranted at 5+ sources or when contributors ask "where is source X logic?" |
-| `fetch_*` functions follow an implicit API contract | Input: `$TARGET` ($1), `$TODAY`,`$WL_MKT`, `$X_LAST_DATE`; Output:`$IMG_TITLE`, `$MESSAGE`, image at`$TARGET`, `X_LAST_DATE="$TODAY"`; helpers:`_wl_daily_cap`,`_wl_check_timeout`,`apply_random_local` |
+| `fetch_*` functions follow an implicit API contract | Input: `$TARGET` ($1), `$TODAY`,`$WL_MKT`, `$X_LAST_DATE`; Output:`$IMG_TITLE`, `$MESSAGE`, image at`$TARGET`, `X_LAST_DATE="$TODAY"`; helpers:`_wl_daily_cap`,`_wl_check_timeout`,`apply_random_local`. `_wl_check_timeout` and `validate_image` exit with **RC=1** on failure so callers can detect it. |
 | Multi-DE helpers in `fetcher.sh`, called via CLI flags from `main.sh` | `fetcher.sh` owns all wallpaper set/get logic; `main.sh` calls `waylume-fetch --set-wallpaper` / `--get-current-wallpaper` to avoid cross-file coupling |
 | XFCE uses `xfconf-query` property enumeration | Enumerating existing `last-image` properties solves multi-monitor automatically; no monitor name guessing |
 | `build.sh` (bash + inline Python) as build tool | Works; evolve to `Makefile + tools/assemble.py` when modularising sources/lib |

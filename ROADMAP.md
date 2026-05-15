@@ -1,6 +1,6 @@
 # WayLume — Roadmap & Critical Analysis
 
-> Last updated: 2026-04-30 · Based on v1.5.0
+> Last updated: 2026-05-12 · Based on v1.7.0
 
 ---
 
@@ -29,7 +29,8 @@ It was born from a real gap left by Variety, which suffers from persistent insta
 | Feature | WayLume | Variety | Bing Ext. | Wallutils |
 | --- | --- | --- | --- | --- |
 | Idle RAM usage | ✅ Zero | ❌ ~30 MB | ❌ (Shell ext.) | ✅ Zero |
-| Native Wayland | ✅ `gsettings` | ⚠️ Unstable | ✅ Native | ✅ Yes |
+| Native Wayland (wallpaper) | ✅ `gsettings` | ⚠️ Unstable | ✅ Native | ✅ Yes |
+| Native Wayland (GUI) | ✅ zenity 4.x GTK4 (v1.7.0) | ⚠️ Unstable | ✅ Native | ❌ CLI only |
 | Graphical UI | ✅ yad | ✅ GTK app | ✅ GNOME native | ❌ CLI only |
 | Online sources | 4 curated | 10+ (Wallhaven, Reddit…) | 1 (Bing only) | 0 (local only) |
 | Local folder as source | ✅ (v1.6.0) | ✅ | ❌ | ✅ |
@@ -69,7 +70,7 @@ It was born from a real gap left by Variety, which suffers from persistent insta
 
 ### Architecture
 
-- **yad requires X11/XWayland.** On purely-native Wayland systems without XWayland, `yad` fails silently. The `xrandr` call in `process_image` has the same problem. Future path: `zenity` (Wayland-native) or resolution detection via `gdbus`/`gsettings`.
+- **yad requires X11/XWayland — a direct contradiction with WayLume's core positioning.** WayLume's wallpaper backend (`gsettings`) is Wayland-native, but the GUI frontend forces `export GDK_BACKEND=x11` and depends entirely on XWayland. On purely-native Wayland sessions without XWayland (e.g. Fedora Silverblue, systems with `--disable-xwayland`), WayLume's UI fails entirely. This is the most critical architectural gap: an app marketed as Wayland-native with an X11-dependent interface. The `xrandr` call in `process_image` shares the same problem. See **Section 8** for the full technical analysis and migration path to `zenity`.
 - **Single monitor only (`head -1`).** In multi-monitor setups, the image is processed for the first monitor's resolution. If monitors have different resolutions, the second one displays the image incorrectly cropped.
 - **Bash as the sole language** imposes real limits: no real JSON parsing (using `grep -oP`), no complex data structures, no unit testing. With 5+ sources, this fragility starts to hurt.
 
@@ -105,7 +106,7 @@ These require no architectural changes and fit the current single-file model.
 | 🟠 Medium | Overlay applied at display time, not baked in | Store the original image; apply overlay only at `apply_wallpaper` time via a temp file; eliminates inconsistency |
 | 🟡 Low | Optional APOD hdurl (4K) | Opt-in setting for HiDPI users; download size trade-off clearly communicated |
 | 🟡 Low | Wallhaven as a source | Largest community wallpaper repository; public API with content filters |
-| 🟡 Low | Thumbnail preview in main menu | `yad --image` + `convert -thumbnail` with no new dependency |
+| 🟡 Low | Thumbnail preview in main menu | `convert -thumbnail` to generate temp file; display mechanism depends on GUI backend chosen (zenity or GTK4 Python) |
 | ✅ Done | Multi-DE support: GNOME, MATE, Cinnamon, KDE Plasma, XFCE | **Implemented in v1.5.0.** `_wl_set_wallpaper` / `_wl_get_current_wallpaper` helpers dispatch via `XDG_CURRENT_DESKTOP`; XFCE uses `xfconf-query` with automatic multi-monitor enumeration. |
 
 ### v2.x — Distribution and packaging
@@ -119,13 +120,14 @@ These require no architectural changes and fit the current single-file model.
 
 ### v3.x — Architecture evolution
 
-> Trigger: 5+ sources, or first external contributor, or GNOME dropping XWayland support.
+> Trigger: 5+ sources, or first external contributor.
 
 | Priority | Feature | Rationale |
 | --- | --- | --- |
+| ✅ Done | **Replace yad with zenity 4.x (Wayland-native GUI)** | **Implemented in v1.7.0.** `export GDK_BACKEND=x11` removed. All dialogs migrated to zenity 4.0.1 (GTK4+libadwaita). GUI is now fully Wayland-native — no XWayland dependency. |
 | 🟠 Medium | `src/sources/` modularisation | Each source in its own file; clear interface contract; enables external contributions |
 | 🟠 Medium | Multi-monitor support | Detect all connected resolutions via `gdbus`/GSettings or Wayland protocol; one image per monitor |
-| 🟡 Low | Replace yad with zenity (or GTK4 native) | Eliminates XWayland dependency; future-proofs against GNOME dropping XWayland |
+| 🟡 Low | GTK4 Python helper (if WM_CLASS/icon needed) | Only option that preserves `--class=WayLume` taskbar integration; ~200 lines embedded via `##PLACEHOLDER##` mechanism; high effort |
 | 🟡 Low | `jq` as a declared dependency | Enables real JSON parsing; eliminates `grep -oP` fragility across all `fetch_*` functions |
 
 ---
@@ -190,14 +192,125 @@ WayLume's competitive advantage is **architectural**: it solves the Wayland stab
 
 1. GNOME remains the primary Wayland desktop (strong: GNOME is the default on Fedora, Ubuntu, Debian)
 2. Systemd remains the init system on target distros (strong: all major distros)
-3. XWayland remains available for yad (medium: long-term risk as pure Wayland adoption grows)
+3. **The GUI backend becomes truly Wayland-native** (currently a gap — see Section 8)
 
-The path to wide adoption runs through **packaging** (`.deb`, AUR) and the **local folder source** — the two changes that most expand the addressable user base without requiring architectural changes.
+The path to wide adoption runs through **packaging** (`.deb`, AUR), the **local folder source**, and — crucially — **eliminating the XWayland dependency from the GUI**. The last item is the most important for WayLume's credibility as a Wayland-first project.
 
-WayLume's competitive advantage is **architectural**: it solves the Wayland stability problem not by patching a daemon, but by eliminating the daemon entirely. This advantage holds as long as:
+---
 
-1. GNOME remains the primary Wayland desktop (strong: GNOME is the default on Fedora, Ubuntu, Debian)
-2. Systemd remains the init system on target distros (strong: all major distros)
-3. XWayland remains available for yad (medium: long-term risk as pure Wayland adoption grows)
+## 8. GUI Backend: yad → Wayland-native (Technical Analysis)
 
-The path to wide adoption runs through **packaging** (`.deb`, AUR) and the **local folder source** — the two changes that most expand the addressable user base without requiring architectural changes.
+> Analysed: 2026-05-12
+
+### 8.1 The problem
+
+WayLume forces `export GDK_BACKEND=x11` in `src/main.sh` because `yad` has no native Wayland window-class support. This means:
+
+- The **entire GUI requires XWayland** to function
+- On Fedora Silverblue, immutable distros, and any session with `--disable-xwayland`, WayLume's UI is completely broken
+- WayLume markets itself as Wayland-native while its most visible component (the GUI) is X11-only
+- The `xrandr` call in `process_image` (resolution detection) has the same XWayland dependency
+
+### 8.2 Candidates evaluated
+
+| Candidate | Wayland-native | Bash subprocess | All dialog types | Pre-installed GNOME | Dep weight | Verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| **zenity 4.x** (GTK4+libadwaita) | ✅ | ✅ | ✅ (with workarounds) | ✅ Ubuntu/Fedora | ~2 MB | **✅ Primary** |
+| kdialog | ✅ | ✅ | ✅ | ❌ KDE only | ~150 MB | ❌ ruled out |
+| qarma | ✅ | ✅ | ✅ | ❌ AUR only | ~80 MB | ❌ ruled out |
+| XDG Portal (`gdbus`) | ✅ | ❌ async D-Bus | ❌ no list/scale | ✅ daemon | 0 | ❌ not a dialog API |
+| GTK4 Python inline | ✅ | ✅ | ✅ full parity | ❌ needs `python3-gi` | ~15 MB | ✅ Secondary (high effort) |
+| gum (TUI) | N/A | ✅ | ✅ | ❌ | ~5 MB | ❌ no GUI context (`Terminal=false`) |
+
+### 8.3 Recommended path: zenity 4.x
+
+`zenity` (GNOME official, GTK4 ≥ 4.x, libadwaita) is Wayland-native by default — GTK4 auto-selects `WAYLAND_DISPLAY` without any `GDK_BACKEND` override. It is pre-installed on Ubuntu 22.04+ and Fedora 37+ GNOME images, and available as `apt install zenity` / `dnf install zenity` elsewhere.
+
+#### Dialog type mapping
+
+| WayLume usage | yad flag | zenity 4.x equivalent |
+| --- | --- | --- |
+| Info/error messages | `--info`, `--error` | `--info`, `--error` ✅ identical |
+| Yes/no questions | `--question` | `--question` ✅ identical |
+| Text entry | `--entry --entry-text=VAL` | `--entry --entry-text=VAL` ✅ identical |
+| Directory picker | `--file --directory` | `--file-selection --directory` ✅ |
+| Interval picker | `--list --radiolist` | `--list --radiolist` ✅ |
+| Sources picker | `--list --checklist` | `--list --checklist --separator=,` ✅ |
+| Gallery limit | `--scale --min-value --max-value --step` | `--scale --min-value --max-value --step` ✅ |
+| Main/settings menus | `--list --hide-column --print-column` | `--list --hide-column --print-column` ✅ |
+| Pulsate progress | `--progress --pulsate --no-buttons` | `--progress --pulsate --no-cancel` ⚠️ needs open stdin |
+| Column header hide | `--no-headers` | `--hide-header` ⚠️ flag renamed |
+
+#### Migration delta — items requiring code changes
+
+**a) Remove `GDK_BACKEND=x11` override** — drop entirely.
+
+**b) Progress dialog** — zenity requires open stdin to stay alive (unlike yad's PID-kill approach). The implemented solution uses a named FIFO to animate 0 → 98% and trigger `--auto-close` at 100. The background task has fd 3 closed (`3>&-`) to prevent the write-end of the pipe being inherited by child processes (`curl`, `convert`, etc.), which would block zenity from ever receiving EOF:
+
+```bash
+run_with_progress() {
+    local MSG="$1"; shift
+    local FIFO RC
+    FIFO=$(mktemp -u /tmp/wl_progress_XXXXXX)
+    mkfifo "$FIFO"
+    _zenity --progress --no-cancel --auto-close \
+        --title="WayLume" --text="$MSG" --width=380 < "$FIFO" &
+    local ZPID=$!
+    exec 3>"$FIFO"          # open write-end; unblocks zenity's stdin open
+    rm -f "$FIFO"           # unlink path; fd 3 keeps the pipe alive
+    echo "0" >&3            # 0% -> OK disabled
+
+    "$@" 3>&- &             # run task; close fd 3 so child never holds the pipe
+    local TPID=$!
+
+    local pct=0             # animate 0->98% while task runs
+    while kill -0 "$TPID" 2>/dev/null; do
+        [ "$pct" -lt 98 ] && pct=$(( pct + 2 ))
+        echo "$pct" >&3
+        sleep 0.25
+    done
+
+    wait "$TPID"; RC=$?
+    echo "100" >&3          # triggers --auto-close
+    exec 3>&-
+    wait "$ZPID" 2>/dev/null
+    return $RC
+}
+```
+
+**Note:** `_wl_check_timeout` (curl timeout) and `validate_image` (bad MIME) exit with RC=1, not RC=0, so `run_with_progress` correctly propagates failure to callers.
+
+**c) Button labels** — zenity supports only `--ok-label` / `--cancel-label` (always exactly 2 buttons). Current `YAD_BTN_*` presets map cleanly:
+- `YAD_BTN_OK` → `--ok-label="$BTN_OK"`
+- `YAD_BTN_YN` → `--ok-label="$BTN_YES" --cancel-label="$BTN_NO"`
+- `YAD_BTN_OKC` → `--ok-label="$BTN_OK" --cancel-label="$BTN_CLOSE"`
+
+All current exit-code checks (`[ $? -eq 0 ]` / `[ $? -ne 0 ]`) remain valid — OK=0, Cancel=1.
+
+**d) `--class=WayLume` and `--window-icon`** — zenity has no equivalent. The dialog window appears under the "zenity" app name in the taskbar instead of WayLume. This is a cosmetic regression, acceptable for the Wayland migration. If WM_CLASS integration must be preserved, the GTK4 Python path (see 8.4) is the only alternative.
+
+**e) `--borders=10`** — drop; libadwaita provides its own spacing defaults.
+
+**f) `--no-headers` → `--hide-header`** — flag rename throughout.
+
+**g) `xrandr` in `process_image`** — replace with `gdbus call --session --dest org.gnome.Mutter.DisplayConfig ...` or expose a manual resolution setting in WayLume's config for non-GNOME DEs.
+
+#### Dependency check command (to add to `check_dependencies`)
+
+```bash
+command -v zenity &>/dev/null || _wl_install_pkg zenity
+```
+
+### 8.4 Secondary path: GTK4 Python helper
+
+If `--class=WayLume` taskbar integration must be preserved, the only Wayland-native option is a small embedded Python GTK4 helper, embedded via the same `##PLACEHOLDER##` mechanism already used for `fetcher.sh` and the i18n bundles.
+
+- **New placeholder:** `##WL_DIALOG_PY##` in `src/main.sh`, replaced by `src/wl_dialog.py`
+- **Interface:** `python3 "$CONFIG_DIR/wl_dialog.py" <type> [args...]` — prints result to stdout, exits 0/1
+- **Scope:** ~200 lines covering all 10 dialog types used by WayLume
+- **Deps:** `python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-adw-1` — in main repos, ~15 MB on GNOME
+- **Effort:** High. Recommended only if zenity's cosmetic gaps are unacceptable after migration.
+
+### 8.5 Decision
+
+**Adopt zenity 4.x as the target GUI backend for v3.x.** The migration is incremental — each `yad_*` wrapper function in `src/main.sh` can be updated independently. The cosmetic loss of `--class=WayLume` is acceptable. The gain — a truly Wayland-native interface — is essential to WayLume's credibility.

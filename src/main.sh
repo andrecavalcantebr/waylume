@@ -4,7 +4,7 @@
 # Version: 1.5.0
 # ====================================================
 
-WL_VERSION="1.5.0"
+WL_VERSION="1.7.0"
 
 # --- Paths and global variables ---
 CONFIG_DIR="$HOME/.config/waylume"
@@ -83,45 +83,67 @@ _wl_read_keyval() {
     done < "$_wl_file"
 }
 
-# Force yad through XWayland so WM_CLASS and window icons work correctly.
-# Without this, yad running under a native Wayland session triggers
-# GDK X11 assertion errors and --class has no effect on the taskbar icon.
-export GDK_BACKEND=x11
+# zenity 4.x (GTK4 + libadwaita) — Wayland-native; no GDK_BACKEND override needed.
 
-# yad base options: consistent class and icon across all dialogs
-# --class sets WM_CLASS so GNOME Shell matches the window to waylume.desktop
-YAD_BASE=(--class=WayLume --window-icon="$ICON_DIR/waylume.svg" --borders=10)
+# Thin wrapper that filters a known GTK4/libadwaita layout bug in zenity 4.x:
+# "GtkBox reports a minimum height of N, but minimum height for width of 1048576 is M"
+# This is a cosmetic inconsistency in GTK's height-for-width measurement at MAX_INT
+# width; it has no effect on dialog behaviour. All other stderr output is preserved.
+_zenity() { zenity "$@" 2> >(grep -Ev "Gtk-CRITICAL.*minimum height" >&2); }
 
 # Button label presets (populated from i18n file loaded above)
-YAD_BTN_OK=(--button="${BTN_CLOSE}:0")
-YAD_BTN_YN=(--button="${BTN_NO}:1" --button="${BTN_YES}:0")
-YAD_BTN_OKC=(--button="${BTN_CLOSE}:1" --button="${BTN_OK}:0")
+# zenity uses --ok-label / --cancel-label; OK exits 0, Cancel exits 1.
+YAD_BTN_OK=(--ok-label="${BTN_CLOSE}")
+YAD_BTN_YN=(--ok-label="${BTN_YES}"  --cancel-label="${BTN_NO}")
+YAD_BTN_OKC=(--ok-label="${BTN_OK}" --cancel-label="${BTN_CLOSE}")
 
 # Wrappers so button labels are consistent without repeating them everywhere
-yad_info()     { yad "${YAD_BASE[@]}" --info     "${YAD_BTN_OK[@]}"  "$@"; }
-yad_error()    { yad "${YAD_BASE[@]}" --error    "${YAD_BTN_OK[@]}"  "$@"; }
-yad_question() { yad "${YAD_BASE[@]}" --question "${YAD_BTN_YN[@]}"  "$@"; }
+yad_info()     { _zenity --info     "${YAD_BTN_OK[@]}"  "$@"; }
+yad_error()    { _zenity --error    "${YAD_BTN_OK[@]}"  "$@"; }
+yad_question() { _zenity --question "${YAD_BTN_YN[@]}"  "$@"; }
 
-# Show a pulsate progress dialog, run a command in background, wait, then close
-# Unlike zenity, yad --progress --pulsate does not depend on stdin to stay open,
-# so we never send < /dev/null (which caused an immediate EOF → auto-close).
+# Show a progress dialog, run a command, then close automatically.
+# - Task runs in background; foreground loop animates the bar (0→98%)
+# - OK button is disabled at any % < 100; Cancel hidden (--no-cancel)
+# - When task finishes, sends "100" → --auto-close dismisses dialog
+# - No user interaction possible during execution
 run_with_progress() {
     local MSG="$1"; shift
-    yad "${YAD_BASE[@]}" \
-        --progress --pulsate \
+    local FIFO RC
+    FIFO=$(mktemp -u /tmp/wl_progress_XXXXXX)
+    mkfifo "$FIFO"
+    _zenity --progress --no-cancel --auto-close \
         --title="WayLume" --text="$MSG" \
-        --width=380 --no-buttons &
-    local YPID=$!
-    "$@"
-    local RC=$?
-    kill $YPID 2>/dev/null; wait $YPID 2>/dev/null
+        --width=380 < "$FIFO" &
+    local ZPID=$!
+    exec 3>"$FIFO"   # open write end; unblocks zenity's stdin open
+    rm -f "$FIFO"    # unlink path; fd 3 keeps the pipe alive
+    echo "0" >&3     # 0% → OK disabled
+
+    "$@" 3>&- &      # run task in background; close fd 3 so child never holds the pipe open
+    local TPID=$!
+
+    # Animate 0→98% while task runs; cap at 98 so auto-close never triggers early
+    local pct=0
+    while kill -0 "$TPID" 2>/dev/null; do
+        [ "$pct" -lt 98 ] && pct=$(( pct + 2 ))
+        echo "$pct" >&3
+        sleep 0.25
+    done
+
+    wait "$TPID"
+    RC=$?
+
+    echo "100" >&3   # triggers --auto-close
+    exec 3>&-
+    wait "$ZPID" 2>/dev/null
     return $RC
 }
 
 # Check and install missing runtime dependencies
 check_dependencies() {
     # Runtime commands required by this script
-    local REQUIRED=("yad" "curl" "notify-send" "file")
+    local REQUIRED=("zenity" "curl" "notify-send" "file")
     local MISSING=()
 
     for cmd in "${REQUIRED[@]}"; do
@@ -348,7 +370,7 @@ uninstall() {
 # GUI: choose the wallpaper gallery directory
 set_gallery_dir() {
     local NEW_DIR
-    NEW_DIR=$(yad "${YAD_BASE[@]}" --file --directory \
+    NEW_DIR=$(_zenity --file-selection --directory \
         --title="${TITLE_GALLERY_PICK}" --filename="$DEST_DIR/" \
         "${YAD_BTN_OKC[@]}")
     if [ -n "$NEW_DIR" ]; then
@@ -372,15 +394,15 @@ set_update_interval() {
     [ "$CUR_UNIT" = "min" ] && MIN_SEL=TRUE || H_SEL=TRUE
 
     local UNIT
-    UNIT=$(yad "${YAD_BASE[@]}" --list --radiolist --title="${TITLE_INTERVAL}" \
+    UNIT=$(_zenity --list --radiolist --title="${TITLE_INTERVAL}" \
         --text="${MSG_INTERVAL_UNIT:-Time unit:}" \
         --column="" --column="${COL_INTERVAL_UNIT:-Unit}" --column="${COL_INTERVAL_VALUE:-Value}" \
         $MIN_SEL "${ITEM_INTERVAL_MIN:-Minutes}" "min" \
         $H_SEL   "${ITEM_INTERVAL_H:-Hours}"    "h"  \
         --print-column=3 --hide-column=3 \
-        --width=320 --height=280 \
+        --width=320 --height=320 \
         "${YAD_BTN_OKC[@]}")
-    UNIT="${UNIT%%|*}"   # yad may append a trailing pipe separator
+    UNIT="${UNIT%%|*}"   # strip trailing pipe (defensive)
 
     [ -z "$UNIT" ] && return
 
@@ -389,7 +411,7 @@ set_update_interval() {
     [ "$UNIT" = "h" ] && LABEL="${LABEL_HOURS:-hours}"
 
     local VALUE
-    VALUE=$(yad "${YAD_BASE[@]}" --scale --title="${TITLE_INTERVAL}" \
+    VALUE=$(_zenity --scale --title="${TITLE_INTERVAL}" \
         --text="$(printf "${MSG_INTERVAL_SCALE:-Interval in %s:}" "$LABEL")" \
         --min-value=1 --max-value=60 --step=1 \
         --value="$CUR_VALUE" \
@@ -412,14 +434,14 @@ set_image_sources() {
     [[ "$SOURCES" == *"Local"* ]]      && LOCAL=TRUE
 
     local NEW_SOURCES
-    NEW_SOURCES=$(yad "${YAD_BASE[@]}" --list --checklist --title="${TITLE_SOURCES}" \
+    NEW_SOURCES=$(_zenity --list --checklist --title="${TITLE_SOURCES}" \
         --text="${MSG_SOURCES_PICK:-Choose where to download new images from:}" \
         --column="" --column="${COL_SOURCES_NAME:-Source}" \
         $BING "Bing" $UNSPLASH "Unsplash" $APOD "APOD" $WIKIMEDIA "Wikimedia" $LOCAL "Local" \
         --print-column=2 --separator="," \
-        --width=280 --height=280 --no-headers \
+        --width=320 --height=360 --hide-header \
         "${YAD_BTN_OKC[@]}")
-    # Strip trailing comma and any whitespace/newlines yad may inject between items
+    # Strip trailing comma and any whitespace/newlines zenity may inject between items
     NEW_SOURCES=$(echo "$NEW_SOURCES" | tr -d '[:space:]' | sed 's/,$//')
 
     if [ -n "$NEW_SOURCES" ]; then
@@ -439,7 +461,7 @@ set_apod_api_key() {
     fi
 
     local NEW_KEY
-    NEW_KEY=$(yad "${YAD_BASE[@]}" --entry \
+    NEW_KEY=$(_zenity --entry \
         --title="${TITLE_APOD_KEY}" \
         --text="$(printf "${MSG_APOD_KEY_PROMPT:-Enter your NASA APOD API Key:\n%s}" "$KEY_HINT")" \
         --entry-text="$APOD_API_KEY" \
@@ -457,7 +479,7 @@ set_apod_api_key() {
 # GUI: set the maximum number of images kept in the gallery
 set_gallery_max() {
     local NEW_MAX
-    NEW_MAX=$(yad "${YAD_BASE[@]}" --scale \
+    NEW_MAX=$(_zenity --scale \
         --title="${TITLE_GALLERY_MAX:-WayLume — Gallery Limit}" \
         --text="${MSG_GALLERY_MAX_PROMPT:-Maximum number of images to keep in the gallery.\n0 = unlimited.}" \
         --value="${GALLERY_MAX_FILES:-60}" \
@@ -537,8 +559,9 @@ fetch_and_apply_wallpaper() {
     fi
 
     # Show progress while downloading/applying
-    run_with_progress "${MSG_FETCH_PROGRESS:-Downloading and applying new wallpaper...}" "$FETCHER_SCRIPT"
-    yad_info --title="WayLume" --text="${MSG_FETCH_DONE:-Wallpaper applied successfully! 🎉}"
+    if run_with_progress "${MSG_FETCH_PROGRESS:-Downloading and applying new wallpaper...}" "$FETCHER_SCRIPT"; then
+        yad_info --title="WayLume" --text="${MSG_FETCH_DONE:-Wallpaper applied successfully! 🎉}"
+    fi
 }
 
 # Navigate the local gallery circularly (direction: next | prev | random)
@@ -600,7 +623,7 @@ go_random_image() { _gallery_navigate random;  }
 menu_settings() {
     _WL_CONFIG_DIRTY=false
     while true; do
-        CHOICE=$(yad "${YAD_BASE[@]}" --list --title="${TITLE_SETTINGS:-WayLume \u2014 Settings}" \
+        CHOICE=$(_zenity --list --title="${TITLE_SETTINGS:-WayLume — Settings}" \
             --text="${MSG_SETTINGS_HEADER:-Change the desired options. On exit, you can apply the changes.}" \
             --column="${COL_MENU_OPTION:-Option}" --column="${COL_MENU_ACTION:-Action}" --hide-column=1 --print-column=1 \
             1 "${MENU_SETTINGS_1:-📂 1. Gallery folder}" \
@@ -610,7 +633,7 @@ menu_settings() {
             5 "${MENU_SETTINGS_5:-🖼️  5. Gallery limit}" \
             6 "$([ "$SHOW_OVERLAY" = "true" ] && echo "${MENU_SETTINGS_6_ON:-🎨 6. Title overlay: ON}" || echo "${MENU_SETTINGS_6_OFF:-🎨 6. Title overlay: OFF}")" \
             7 "${MENU_SETTINGS_7:-🚪 7. Exit}" \
-            --width=420 --height=390 --no-headers \
+            --width=440 --height=520 --hide-header \
             "${YAD_BTN_OKC[@]}")
         CHOICE="${CHOICE%%|*}"
         [ $? -ne 0 ] || [ -z "$CHOICE" ] && break
@@ -638,12 +661,12 @@ menu_settings() {
 # Submenu: maintenance options (timer toggle, clean gallery, uninstall)
 menu_maintenance() {
     while true; do
-        CHOICE=$(yad "${YAD_BASE[@]}" --list --title="${TITLE_MAINTENANCE:-WayLume \u2014 Maintenance}" \
+        CHOICE=$(_zenity --list --title="${TITLE_MAINTENANCE:-WayLume — Maintenance}" \
             --column="${COL_MENU_OPTION:-Option}" --column="${COL_MENU_ACTION:-Action}" --hide-column=1 --print-column=1 \
             1 "$(systemctl --user is-active --quiet waylume.timer 2>/dev/null && echo "${MENU_MAINTENANCE_1_ON:-⏸️ 1. Pausar timer}" || echo "${MENU_MAINTENANCE_1_OFF:-▶️ 1. Retomar timer}")" \
             2 "${MENU_MAINTENANCE_2:-🧹 2. Limpar galeria}" \
             3 "${MENU_MAINTENANCE_3:-🗑️  3. Remover WayLume}" \
-            --width=380 --height=260 --no-headers \
+            --width=400 --height=320 --hide-header \
             "${YAD_BTN_OKC[@]}")
         CHOICE="${CHOICE%%|*}"
         [ $? -ne 0 ] || [ -z "$CHOICE" ] && break
@@ -724,7 +747,7 @@ fi
 load_config
 
 while true; do
-    CHOICE=$(yad "${YAD_BASE[@]}" --list --title="${TITLE_MENU}" \
+    CHOICE=$(_zenity --list --title="${TITLE_MENU}" \
         --text="$(printf "${MSG_MENU_HEADER:-Wallpaper Manager\nCurrent Gallery: %s\nUpdate Interval: %s\nTitle overlay: %s\nTimer: %s}" "$DEST_DIR" "$INTERVAL" "$([ "$SHOW_OVERLAY" = "true" ] && echo "${LABEL_OVERLAY_ON:-ON}" || echo "${LABEL_OVERLAY_OFF:-OFF}")" "$(systemctl --user is-active --quiet waylume.timer 2>/dev/null && echo "${LABEL_TIMER_ON:-on}" || echo "${LABEL_TIMER_OFF:-paused}")")" \
         --column="${COL_MENU_OPTION:-Option}" --column="${COL_MENU_ACTION:-Action}" --hide-column=1 --print-column=1 \
         1 "${MENU_ITEM_1:-⬇️  1. Download new image now}" \
@@ -734,9 +757,9 @@ while true; do
         5 "${MENU_ITEM_5:-⚙️  5. Settings}" \
         6 "${MENU_ITEM_6:-🔧 6. Maintenance}" \
         7 "${MENU_ITEM_7:-🚪 7. Exit}" \
-        --width=460 --height=365 --no-headers \
+        --width=480 --height=560 --hide-header \
         "${YAD_BTN_OKC[@]}")
-    CHOICE="${CHOICE%%|*}"   # strip trailing pipe yad may append
+    CHOICE="${CHOICE%%|*}"   # strip trailing pipe (defensive)
 
     # Exit on window close (X button / Alt+F4) or empty selection
     [ $? -ne 0 ] || [ -z "$CHOICE" ] && break
