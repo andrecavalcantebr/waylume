@@ -1,4 +1,4 @@
-# CHECKPOINT — Session 2026-05-13
+# CHECKPOINT — Session 2026-05-20
 
 > Read this file at the start of each session to recover development context.
 
@@ -8,15 +8,14 @@
 
 - **Repo:** github.com/andrecavalcantebr/waylume
 - **Branch:** main
-- **Latest commit:** see `git log` below
-- **Version:** `1.7.0`
+- **Version:** `1.8.0` — ⛔ SÉRIE 1.x ENCERRADA — não commitada
 - **Git log:**
 
   ```text
-  <hash>   fix: progress dialog pipe fd leak + exit codes + conditional success (v1.7.0)
-  <hash>   feat: zenity migration — Wayland-native GUI (v1.7.0)
-  <hash>   feat: timer pause/resume in Maintenance menu (v1.6.0)
-  <hash>   feat: multi-DE support — GNOME, MATE, Cinnamon, KDE, XFCE (v1.5.0)
+  (pendente)   fix: fresh install + atomic writes + BTNS rename + set_gallery_dir (v1.8.0)
+  70ee310  feat(zenity-migration): migrate GUI from yad to zenity 4.x (v1.7.0)
+  7b2962c  feat: timer pause/resume and local gallery source (v1.6.0)
+  6061b85  feat: multi-DE support — GNOME, MATE, Cinnamon, KDE, XFCE (v1.5.0)
   653b2d4  feat: overlay toggle, multi-DE roadmap, and docs update (v1.4.0)
   ```
 
@@ -27,38 +26,33 @@
 ```text
 waylume/
   src/
-    main.sh         (778 lines) — installer and GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
-    fetcher.sh      (529 lines) — systemd worker (waylume-fetch); multi-DE helpers; standalone-testable with: bash src/fetcher.sh
-    waylume.svg     ( 22 lines) — application SVG icon
+    main.sh         (~796 lines) — installer and GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
+    fetcher.sh      (~570 lines) — systemd worker (waylume-fetch); multi-DE helpers; standalone-testable with: bash src/fetcher.sh
+    waylume.svg     (  22 lines) — application SVG icon
     i18n/
-      pt.sh         (142 lines) — all strings in Brazilian Portuguese
-      en.sh         (144 lines) — all strings in English
-  build.sh          ( 50 lines) — combines the above files → waylume.sh; supports --install flag
-  waylume.sh        (1615 lines) — GENERATED ARTIFACT; do not edit directly
-  test_multi_de.sh               — mock-based smoke tests for multi-DE dispatch (29 assertions; no DE installation required)
-  linuxtoys-pr/                  — material for the LinuxToys PR (see below)
-    p3/scripts/utils/
-      waylume.sh                 — LinuxToys installer script (nocontainer); # desktop: gnome xfce mate x-cinnamon kde
-      waylume.svg                — symlink → src/waylume.svg
-    p3/libs/lang/
-      en.json.patch              — waylume_desc to add to LinuxToys en.json
-      pt.json.patch              — waylume_desc to add to LinuxToys pt.json
-  DEVELOPER.md               — technical reference for contributors
-  README.md                  — language hub (links → README.pt.md and README.en.md)
-  README.pt.md               — user documentation in Portuguese
-  README.en.md               — user documentation in English
-  LICENSE.md                 — GPLv3 (authoritative English text)
-  LICENSE.pt.md              — informational GPLv3 summary in Portuguese (does not replace EN)
-  CHECKPOINT.md              — this file
+      pt.sh         (~142 lines) — all strings in Brazilian Portuguese
+      en.sh         (~144 lines) — all strings in English
+  build.sh          (  50 lines) — combines the above files → waylume.sh; supports --install flag
+  waylume.sh        (~1674 lines) — GENERATED ARTIFACT; do not edit directly
+  test_multi_de.sh  — mock-based smoke tests for multi-DE dispatch (29 assertions; no DE installation required)
+  linuxtoys-pr/     — material for the LinuxToys PR (see below)
+  DEVELOPER.md      — technical reference for contributors
+  ROADMAP.md        — version history, competitive analysis, and future plans
+  README.md         — language hub (links → README.pt.md and README.en.md)
+  README.pt.md      — user documentation in Portuguese
+  README.en.md      — user documentation in English
+  LICENSE.md        — GPLv3 (authoritative English text)
+  CHECKPOINT.md     — this file
 ```
 
 ### Golden rule
 
 **Always edit in `src/`, never in `waylume.sh` directly.**
-After any change:
 
 ```bash
-./build.sh --install
+./build.sh --install   # build + install
+./build.sh && bash -n waylume.sh   # validate only
+bash test_multi_de.sh  # run tests (expected: 29/29)
 ```
 
 ---
@@ -74,78 +68,18 @@ After any change:
 | `##I18N_PT##` | content of `src/i18n/pt.sh` |
 | `##I18N_EN##` | content of `src/i18n/en.sh` |
 
-The `##I18N_PT##` and `##I18N_EN##` placeholders live **inside heredocs** in `install_or_update`:
-
-```bash
-cat << 'WL_I18N_PT' > "$CONFIG_DIR/i18n/pt.sh"
-##I18N_PT##
-WL_I18N_PT
-```
-
-Python substitutes them before runtime, so the resulting heredoc contains the correct string bundle.
-
-Result: `waylume.sh` is self-contained (972 lines, single file for distribution).
+The i18n placeholders live inside heredocs in `install_or_update`. Python substitutes them before runtime; `waylume.sh` is self-contained (~1658 lines, single file for distribution).
 
 ---
 
-## Internationalisation (i18n) — COMPLETE
-
-### Architecture
+## Internationalisation (i18n)
 
 - Bundles in `src/i18n/{lang}.sh` — variables `BTN_*`, `TITLE_*`, `MSG_*`, `COL_*`, `ITEM_*`, `LABEL_*`, `MENU_ITEM_*`
-- Embedded into `waylume.sh` via `##I18N_PT##` / `##I18N_EN##` inside heredocs
-- Extracted to `~/.config/waylume/i18n/` during `--install`
-- Loaded at runtime at the top of `main.sh` and `fetcher.sh`
-
-### Language detection
-
-```bash
-_wl_lang="${LANG:-${LANGUAGE:-en}}"
-_wl_lang="${_wl_lang%%.*}"   # strip .UTF-8
-_wl_lang="${_wl_lang%%_*}"   # strip _BR, _US, _AU…
-_wl_lang="${_wl_lang,,}"     # lowercase
-source "$CONFIG_DIR/i18n/${_wl_lang}.sh" 2>/dev/null \
-    || source "$CONFIG_DIR/i18n/en.sh" 2>/dev/null || true
-```
-
-| LANG | Result |
-| --- | --- |
-| `pt_BR.UTF-8`, `pt_PT.UTF-8`, `pt` | `pt.sh` ✅ |
-| `en_US.UTF-8`, `en_AU.UTF-8`, `en_GB.UTF-8`, `en` | `en.sh` ✅ |
-| `de_DE.UTF-8`, `C`, empty | fallback `en.sh` |
-
-**LANG injected into systemd:** `Environment="LANG=${LANG}"` is written into the `.service` file at
-`deploy_services` time, so that `fetcher.sh` inherits the correct locale from the user session.
-
-### First-run (before --install)
-
-Button and title variables have **inline fallbacks** via `${VAR:=value}` to work without i18n files:
-
-```bash
-: "${BTN_CLOSE:=Close}"
-: "${BTN_YES:=Yes}"
-: "${BTN_NO:=No}"
-: "${BTN_OK:=OK}"
-# etc.
-```
-
-### Dynamic string conventions
-
-```bash
-# Simple:
---text="${MSG_CONFIRM_DELETE}"
-
-# With dynamic value (printf):
---text="$(printf "${MSG_CONFIRM_DELETE_N}" "$COUNT")"
-notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
-```
-
-### Adding a new language
-
-1. `cp src/i18n/en.sh src/i18n/XX.sh` → translate all values
-2. Add a `##I18N_XX##` placeholder inside a heredoc in `install_or_update` in `src/main.sh`
-3. Update `build.sh` with the new `I18N_XX` variable and the extra Python argument
-4. `./build.sh && ./waylume.sh --install`
+- Extracted to `~/.config/waylume/i18n/` during `--install`; loaded at runtime in `main.sh` and `fetcher.sh`
+- Language detection: `$LANG` → strip `.UTF-8` → strip `_BR`/`_US` → lowercase → source `{lang}.sh`; fallback to `en.sh`
+- `LANG` injected into systemd via `Environment="LANG=${LANG}"` in the `.service` file (set at deploy time)
+- Inline fallbacks via `${VAR:=value}` for first-run before `--install`
+- To add a language: `cp src/i18n/en.sh src/i18n/XX.sh` → translate → add placeholder in `install_or_update` → update `build.sh`
 
 ---
 
@@ -153,7 +87,7 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 
 ### Menu (src/main.sh)
 
-#### Main menu (7 items)
+#### Main menu
 
 | # | Option | Handler |
 | --- | --- | --- |
@@ -165,81 +99,77 @@ notify-send "WayLume" "$(printf "${MSG_FETCH_INVALID_MIME}" "$MIME")"
 | 6 | 🔧 Maintenance | `menu_maintenance` (submenu) |
 | 7 | 🚪 Exit | `break` |
 
+Header shows: gallery folder, interval, overlay state (ON/OFF), timer state (active/paused).
+
 #### Settings submenu — deferred save pattern
 
-`_WL_CONFIG_DIRTY=false` reset on entry. Each `set_*` sets the flag but does **not** call `save_config`. On exit: if dirty → ask user → `save_config + deploy_services`.
+`_WL_CONFIG_DIRTY=false` reset on entry. Each `set_*` updates the in-memory variable and sets the flag but does **not** call `save_config`. On exit: if dirty → ask user → `save_config + deploy_services`.
 
-| # | Option | Handler |
-| --- | --- | --- |
-| 1 | 📂 Gallery folder | `set_gallery_dir` |
-| 2 | ⏱️ Update interval | `set_update_interval` |
-| 3 | 🌍 Image sources | `set_image_sources` |
-| 4 | 🔑 NASA API Key | `set_apod_api_key` |
-| 5 | 🖼️ Gallery limit | `set_gallery_max` |
-| 6 | 🎨 Title overlay | `set_overlay_toggle` — label mostra estado atual (ON/OFF) |
-| 7 | 🚪 Exit | `break` → triggers apply prompt |
+| # | Option | Handler | Variable |
+| --- | --- | --- | --- |
+| 1 | 📂 Gallery folder | `set_gallery_dir` | `DEST_DIR` |
+| 2 | ⏱️ Update interval | `set_update_interval` | `INTERVAL` |
+| 3 | 🌍 Image sources | `set_image_sources` | `SOURCES` |
+| 4 | 🔑 NASA API Key | `set_apod_api_key` | `APOD_API_KEY` |
+| 5 | 🖼️ Gallery limit | `set_gallery_max` | `GALLERY_MAX_FILES` |
+| 6 | 🎨 Title overlay (ON/OFF) | `set_overlay_toggle` | `SHOW_OVERLAY` |
+| 7 | 🚪 Exit | — | triggers apply prompt if dirty |
 
 #### Maintenance submenu
 
 | # | Option | Handler |
 | --- | --- | --- |
-| 1 | ⏸️/▶️ Pause / Resume timer | `toggle_timer` — dynamic label reflects current state |
+| 1 | ⏸️/▶️ Pause / Resume timer | `toggle_timer` — dynamic label |
 | 2 | 🧹 Clean gallery | `clean_gallery` |
 | 3 | 🗑️ Remove WayLume | `uninstall` |
-
-#### Sources (5)
-
-`Bing`, `Unsplash`, `APOD`, `Wikimedia`, `Local` — comma-separated in `SOURCES` conf key; selected via checklist in Settings. `Local` skips download, `validate_image` and `process_image`; rotates existing gallery offline.
 
 #### Gallery navigation
 
 `_gallery_navigate(next|prev|random)` in `main.sh`:
 
 - Filenames `waylume_YYYYMMDD_HHMMSS.jpg` → alphabetical sort = chronological order
-- Current wallpaper read from `gsettings`; circular index with modulo arithmetic
-- No ImageMagick: overlays already applied; only `gsettings set` + `notify-send`
-- `go_next_image()`, `go_prev_image()`, `go_random_image()` are thin one-line wrappers
+- Current gallery file read via `waylume-fetch --get-current-gallery` — returns original gallery path even when DE wallpaper points to the temp overlay display file (`waylume_display.jpg`)
+- Circular index with modulo arithmetic; `go_next_image()`, `go_prev_image()`, `go_random_image()` are thin one-line wrappers
+- Navigation applies via `waylume-fetch --set-wallpaper "$TARGET"` — composites overlay at display time
 
 ### Fetcher (src/fetcher.sh)
 
-- **4 sources:** Bing (daily), Unsplash (random + real author via Picsum-ID), APOD (NASA), Wikimedia POTD
-- **Daily cache:** Bing, APOD, Wikimedia download only once per day; subsequent timer runs rotate from local gallery
-- **Persisted state:** `~/.config/waylume/waylume.state` (`APOD_LAST_DATE`, `BING_LAST_DATE`, `WIKIMEDIA_LAST_DATE`)
-- **Unsplash metadata:** `curl -D` captures `Picsum-ID` header → `/id/{id}/info` → real author name in title
-- **Wikimedia POTD:** 2-step API: Template:Potd/{date} → filename → imageinfo (1920px thumburl). Python3 decodes `\uXXXX` Unicode escapes in filename before `--data-urlencode`
-- **API error handling:** rate limit / invalid key → notifies user + uses local gallery + marks date (no loop)
-- **Title overlay:** ImageMagick via `-composite` (JPEG has no alpha channel); controlled by `SHOW_OVERLAY` config key (default `true`)
-- **Brand strip (North, centered):** `WayLume` name only (DejaVu-Sans-Bold 15pt white, centered `+0+17`); URL removed
-- **APOD:** uses `url` (960px) instead of `hdurl` (4K) — ~10x faster
-- **Bing fix (2026-03-11):** API changed `format=js` → `format=json`; added fallback to `apply_random_local` when URL is empty
+- **Sources:** `Bing`, `Unsplash`, `APOD`, `Wikimedia`, `Local` — comma-separated in `SOURCES`; `Local` rotates gallery offline
+- **Daily cap:** Bing, APOD, Wikimedia download once/day; `_wl_daily_cap()` helper; Unsplash capped since 2026-04-04
+- **Persisted state (`waylume.state`):** `APOD_LAST_DATE`, `BING_LAST_DATE`, `UNSPLASH_LAST_DATE`, `WIKIMEDIA_LAST_DATE`, `CURRENT_GALLERY`
+- **Overlay architecture:** gallery files stored clean; each image has a `${file}.title` sidecar (written after `process_image`); `_wl_make_display_image()` composites overlay onto `~/.cache/waylume/waylume_display.jpg` at display time only; `SHOW_OVERLAY` controls it
+- **`CURRENT_GALLERY`:** active gallery file path tracked in state; set by `_wl_make_display_image()`; persisted by `save_state()`; read back via `--get-current-gallery`; needed because with overlay on, DE stores the temp display path, not the gallery file
+- **`prune_gallery`:** uses `CURRENT_GALLERY` (not `_wl_get_current_wallpaper`) to protect the active file; also deletes `.title` sidecar alongside the image
+- **Unsplash:** `curl -D` captures `Picsum-ID` header → `/id/{id}/info` → real author name in title
+- **Wikimedia POTD:** 2-step API; Python3 decodes `\uXXXX` Unicode escapes in filename before `--data-urlencode`
+- **API errors:** rate limit / invalid key → notify + local gallery + mark date (avoids hammering API)
+- **APOD:** uses `url` (960px); `hdurl` (4K) is opt-in (future roadmap item)
+
+### CLI modes of waylume-fetch
+
+| Flag | Purpose |
+| --- | --- |
+| `--random` | Pick random gallery image and apply (overlay at display time) |
+| `--set-wallpaper PATH` | Apply PATH; composite overlay; save state |
+| `--get-current-wallpaper` | Print DE's wallpaper path (may be temp display file) |
+| `--get-current-gallery` | Print original gallery file from `CURRENT_GALLERY` in state |
+| *(no flag)* | Download from a configured source and apply |
 
 ### Fixed bugs
 
 | Session | Bug | Fix |
 | --- | --- | --- |
-| 2026-04-30 | Main menu `--text=` — stray `\"` appended after closing `)` was passed as a literal argument to yad, displacing all list data → empty menu items | Removed the stray `\"` in `src/main.sh`; also increased `--height` 340 → 365 for 5-line header |
-| 2026-04-06 | `process_image` — Brand strip mostrava URL `is.gd/48OrTP` — não clicável no wallpaper, parece fraude | URL removida; nome `WayLume` centralizado (`-gravity North -annotate +0+17`) |
-| 2026-04-06 | `fetcher.sh` / `main.sh` — Overlay sempre ativo, sem controle do usuário | Adicionado `SHOW_OVERLAY=true/false` no conf; `set_overlay_toggle()` no submenu Settings (item 6); header do menu principal mostra o estado atual |
-| 2026-04-04 | `source waylume.conf` / `source waylume.state` — arbitrary code execution if file tampered | `_wl_read_keyval()`: safe `key=value` parser with explicit key whitelist, no `eval` |
-| 2026-04-04 | `source "$CONF_FILE"` in `load_config()` in `main.sh` — same vector, runs in interactive user shell | `_wl_read_keyval()` defined in `main.sh`; `load_config` updated |
-| 2026-04-04 | `"fetch_${SELECTED_SOURCE,,}"` — dynamic dispatch to arbitrary function name | Replaced with `case` statement; only 4 known source names allowed; unknown → local gallery + notify |
-| 2026-04-04 | `IMG_TITLE` in `convert -annotate` — bare `%` expanded as ImageMagick format specifier; control chars misalign overlay | `${...//%/%%}` + `tr -d \000-\037\177` applied to `DISPLAY_TITLE` in `process_image` |
-| 2026-04-04 | Unsplash downloaded on every timer tick — gallery grew unboundedly | Added `UNSPLASH_LAST_DATE` state; now capped at 1 download/day like other sources |
-| 2026-04-04 | Gallery grew without bound; no auto-cleanup | Added `prune_gallery()` in fetcher + `GALLERY_MAX_FILES` config (default 60); exposed as Settings item |
-| 2026-05-13 | `run_with_progress` — fd 3 herdado por subprocess do fetcher (e por `curl`, `convert`) → zenity nunca recebia EOF → app travado | `"$@" 3>&- &`: fd 3 fechado no subprocess antes do fork |
-| 2026-05-13 | `_wl_check_timeout` — `exit 0` em timeout mascarava falha; `run_with_progress` reportava sucesso erroneamente | Alterado para `exit 1`; RC correto propagado |
-| 2026-05-13 | `validate_image` — `exit 0` em MIME inválido mascarava falha idêntico ao anterior | Alterado para `exit 1` |
-| 2026-05-13 | `fetch_and_apply_wallpaper` — diálogo de sucesso exibido incondicionalmente | Condicional: `if run_with_progress ...; then yad_info ...` |
-| 2026-04-04 | `--random` mode called `validate_image` + `process_image` on already-processed files — JPEG re-encoded (lossy) on every gallery rotation | Early exit: `apply_random_local + apply_wallpaper + exit 0`; pipeline bypassed for `--random` |
-| 2026-04-04 | Daily cap check repeated verbatim (3 lines) in all 4 `fetch_*` functions | Extracted to `_wl_daily_cap()` helper (indirect expansion `${!2}`); each source: `_wl_daily_cap "X" X_LAST_DATE && return` |
-| 2026-04-01 | Wikimedia: `\uXXXX` in filename → `--data-urlencode` sent literal `%5Cu00ed` → empty `thumburl` | Python3 decode before Step 2 curl call |
-| 2026-04-01 | `unpin_from_favorites` missing closing `}` → premature EOF syntax error | Fixed targeted replacement |
-| 2026-03-11 | Bing: `format=js` rejected by API → empty URL → silent failure | Changed to `format=json`; added fallback to local gallery |
-| earlier | `yad_info/error/question` recursive → segfault | Rewrote as non-recursive wrappers |
-| earlier | `SOURCES` saved with literal `\n` → `case` never matched | Strip whitespace from `SOURCE_ARRAY` elements |
-| earlier | Title overlay invisible in JPEG (alpha channel) | Fixed with `-composite` |
-| earlier | APOD `hdurl` → 30s+ downloads | Use `url` (960px) |
-
+| 2026-05-13 | `run_with_progress` — fd 3 herdado por subprocess do fetcher → zenity nunca recebia EOF → app travado | `"$@" 3>&- &`: fd 3 fechado no subprocess antes do fork |
+| 2026-05-13 | `_wl_check_timeout` — `exit 0` em timeout mascarava falha | Alterado para `exit 1`; RC correto propagado |
+| 2026-05-13 | `validate_image` — `exit 0` em MIME inválido mascarava falha | Alterado para `exit 1` |
+| 2026-05-13 | `fetch_and_apply_wallpaper` — diálogo de sucesso exibido incondicionalmente | `if run_with_progress ...; then yad_info ...` |
+| 2026-05-17 | `_gallery_navigate` — usava `--get-current-wallpaper`; com overlay ativo DE guarda temp file → never found in array → navegação sempre recomeçava do índice 0 | Novo CLI mode `--get-current-gallery`; `_wl_make_display_image()` seta `CURRENT_GALLERY`; `save_state()` persiste |
+| 2026-05-17 | `prune_gallery` — proteção do wallpaper ativo usava `_wl_get_current_wallpaper`; retornava temp file → proteção nunca disparava → gallery file ativo podia ser deletado | Substituído por `CURRENT_GALLERY:-$(_wl_get_current_wallpaper)` |
+| 2026-05-17 | Overlay baked in no arquivo da galeria — `process_image` compunha overlay no arquivo armazenado; impossível ligar/desligar sem re-download; JPEG re-encodado na navegação | `process_image` só faz resize/crop; sidecar `.title` por imagem; overlay composited ao display time por `_wl_make_display_image()` |
+| 2026-05-18 | `set_overlay_toggle` — alternar `SHOW_OVERLAY` não re-aplicava o wallpaper atual; mudança só visível na **próxima** troca | `save_config` chamado imediatamente; `waylume-fetch --set-wallpaper "$(--get-current-gallery)"` re-aplica a imagem ativa; `yad_info` bloqueante substituído por `notify-send`; `_WL_CONFIG_DIRTY` não setado (sem restart de serviço necessário) |
+| 2026-05-20 | `set_gallery_dir` — diálogo de seleção de pasta nunca abria; `zenity --file-selection --directory` não suporta `--ok-label`/`--cancel-label` → exit 255 silencioso | Removido `"${YAD_BTN_OKC[@]}"` da chamada; file chooser usa botões nativos |
+  | 2026-05-20 | `install_or_update` (fresh install) — `deploy_services` nunca chamado no branch `IS_UPDATE=false` → fetcher script e timer nunca gerados na 1ª instalação | Adicionado `load_config; deploy_services` ao branch `else` |
+  | 2026-05-20 | `save_config` / `save_state` — escrita não-atômica: arquivo truncado antes de completar → crash entre truncate e write → config/state zerado; usuário perde `DEST_DIR` e datas | Escrita via `.tmp` + `mv` atômico em ambas as funções |
 ---
 
 ## Default configuration
@@ -262,91 +192,56 @@ SHOW_OVERLAY="true"
 
 - **PR:** <https://github.com/psygreg/linuxtoys/pull/399> (open, awaiting review)
 - **Fork:** <https://github.com/andrecavalcantebr/linuxtoys> → branch `feat/add-waylume`
-- **Local clone:** `/home/andre/code/linuxtoys`
-- **Files added to linuxtoys:**
-  - `p3/scripts/utils/waylume.sh` — `# nocontainer` script; runs `curl .../waylume.sh | bash -s -- --install`
-  - `p3/scripts/utils/waylume.svg` — icon copy
-  - `p3/libs/lang/en.json` + `pt.json` — `waylume_desc` translation key added
-- **Auto-update mechanism:** the LinuxToys script points to `raw.githubusercontent.com/andrecavalcantebr/waylume/main/waylume.sh`. Every `./build.sh && git push` on the waylume repo automatically updates what LinuxToys installs — no changes to the PR needed.
-- **PR material backup:** `linuxtoys-pr/` in this repo (`waylume.svg` is a symlink to `src/waylume.svg`)
+- **Files added:** `p3/scripts/utils/waylume.sh` (nocontainer), `waylume.svg`, `p3/libs/lang/{en,pt}.json` (`waylume_desc` key)
+- **Auto-update:** LinuxToys script points to `raw.githubusercontent.com/andrecavalcantebr/waylume/main/waylume.sh` — every `build.sh + git push` updates what LinuxToys installs
 
 ---
 
-## Critical analysis (session 2026-04-01)
+## Open issues
 
-### Usability — issues to address in future versions
+### Functionality
 
-- **No thumbnail in menu** — user doesn't see the current wallpaper, only filename via `notify-send`
-- ~~**Overlay always on**~~ **FIXED (2026-04-06):** `SHOW_OVERLAY` config key + `set_overlay_toggle()` em Settings
-- ~~**Brand URL in banner**~~ **FIXED (2026-04-06):** URL removida; nome `WayLume` centralizado
-- **APOD low resolution** — uses `url` (~960px) for speed, but `hdurl` (4K) is never offered
-- **No gallery size limit** — disk fills over time; no auto-cleanup of oldest files — **FIXED (2026-04-04):** `prune_gallery()` + `GALLERY_MAX_FILES=60`
-- ~~**No timer pause/resume**~~ — **FIXED (v1.6.0):** ⏸️/▶️ toggle in Maintenance submenu; `systemctl --user stop/start waylume.timer`; timer state in main menu header
-- ~~**No local folder source**~~ — **FIXED (v1.6.0):** "Local" added as a source option; timer rotates gallery offline, no download.
+- **No thumbnail in menu** — user doesn't see the current wallpaper; only filename via `notify-send`
+- **APOD low resolution** — `url` (~960px) used for speed; `hdurl` (4K) never offered (roadmap v1.x)
 - **Multiple monitors** — `process_image` uses only `head -1` monitor from `xrandr`
-- **xrandr fallback** — if `xrandr` fails (pure Wayland without XWayland), `process_image` exits silently with no resize
+- **xrandr dependency** — `process_image` exits silently if `xrandr` fails (pure Wayland without XWayland)
+- **`SHOW_OVERLAY` toggle re-aplica imagem nova em vez da atual** — ~~ao salvar Settings com `SHOW_OVERLAY` alterado, a lógica atual não sabe qual era a imagem ativa; o próximo wallpaper vem do ciclo normal (download / gallery), não é a mesma imagem com/sem overlay. Para corrigir: armazenar o **ID da imagem atual** (ex.: nome do arquivo sem extensão) além do `.title` sidecar; ao confirmar mudança de `SHOW_OVERLAY`, chamar `_wl_make_display_image()` sobre a imagem cujo ID está salvo → usuário vê o mesmo papel de parede, apenas com ou sem título (ver próxima sessão)~~ **RESOLVIDO** — `set_overlay_toggle()` chama `save_config` imediatamente (sem esperar confirm de saída do Settings) e então `waylume-fetch --set-wallpaper $(--get-current-gallery)`. Toggle não seta `_WL_CONFIG_DIRTY`: config já salva, sem restart de serviço necessário. `yad_info` substituído por `notify-send`.
 
-### Security — issues to address in future versions
+### Security
 
-- ~~**`source "$CONF_FILE"`** in `fetcher.sh` — arbitrary code execution if the config file is tampered with~~ **FIXED (2026-04-04):** substituído por `_wl_read_keyval()` com whitelist explícita
-- ~~**`source "$STATE_FILE"`** — same problem with `waylume.state`~~ **FIXED (2026-04-04)**
-- **`grep -oP` JSON parsing** — not real parsing; malicious API responses could inject unexpected output. _Note: the practical risk is low after `IMG_TITLE` sanitisation (% escaping + control-char stripping), since the injected value no longer reaches ImageMagick unfiltered. A proper fix (e.g. `python3 -c json.loads`) would require refactoring all four `fetch_*` functions and is not justified at this scale. Revisit if a new source is added or if `jq` becomes a declared dependency._
-- ~~**`IMG_TITLE` in `convert -annotate`** — titles with special chars (`'`, `"`) could break the ImageMagick command; truncation to 120 chars mitigates but doesn't eliminate~~ **FIXED (2026-04-04):** `%` escaped to `%%`; C0 control chars stripped via `tr`
-- ~~**`"fetch_${SELECTED_SOURCE,,}"`** — dynamic function dispatch; `SOURCES` now parsed safely but dispatch still resolves to an arbitrary function name; mitigated by the fact that `_wl_read_keyval` no longer allows injection via conf~~ **FIXED (2026-04-04):** substituído por `case` com as 4 fontes hardcoded; valor desconhecido cai em fallback local
-
-### Functionality — gaps for future versions
-
-- ~~Option to disable/configure the title overlay and brand strip~~ **FIXED (2026-04-06)**
-- ~~Gallery size limit (keep last N images)~~ **FIXED (2026-04-04)**
-- Multi-monitor support (detect all connected resolutions)
-- `hdurl` option for APOD (opt-in for 4K)
-- ~~Timer pause/resume without uninstalling~~ **FIXED (v1.6.0)**
-- ~~Local folder as wallpaper source~~ **FIXED (v1.6.0)**
-- In-menu thumbnail preview of current wallpaper (yad supports `--image`)
+- **`grep -oP` JSON parsing** — not real parsing; malicious API response could inject unexpected output. Risk is low after `IMG_TITLE` sanitisation (`%%` escaping + C0 stripping), since injected value no longer reaches ImageMagick unfiltered. Proper fix (`jq` or `python3 json.loads`) not justified at this scale; revisit if `jq` becomes a declared dependency.
 
 ---
 
-## Critical analysis (session 2026-04-04)
+## ⛔ Série 1.x encerrada — conhecidos bugs remanescentes (não serão corrigidos)
 
-| Priority | Issue | Status |
-| --- | --- | --- |
-| 🔴 1 | `--random` mode re-encoded already-processed JPEGs on every gallery rotation (lossy degradation) | **FIXED** — early exit before `process_image` |
-| 🟠 2 | No `--max-time` on any `curl` call — slow server hangs the systemd service indefinitely | **FIXED** — `--connect-timeout 8 --max-time 15` (API), `--connect-timeout 10 --max-time 30` (image); `_wl_check_timeout` notifies + exits clean |
-| 🟠 3 | `DEST_DIR` empty if conf missing → `find ""` → `find .` (scans cwd of service, potentially `/`) | **FIXED** — `DEST_DIR="${DEST_DIR:-$(xdg-user-dir PICTURES)/WayLume}"` fallback after `_wl_read_keyval` |
-| 🟠 4 | `prune_gallery` may delete the active wallpaper → GNOME shows black on next change | **FIXED** — reads active path via `gsettings get picture-uri`; active file skipped in delete loop |
-| 🟡 5 | `HDR_TMP="/tmp/wl_hdr_$$"` — PID-predictable temp file; symlink attack risk | **FIXED** — `mktemp /tmp/wl_hdr_XXXXXX` + `trap 'rm -f "$HDR_TMP"' EXIT`; trap cancelled after manual `rm` |
-| 🟡 6 | `WL_VERSION="1.1.0"` — should be bumped to `1.3.0` | **FIXED** — bumped to `1.3.0` in `src/main.sh` |
-| 🟡 7 | `mkt=pt-BR` hardcoded in Bing URL — non-PT users see captions in Portuguese | **FIXED** — `WL_MKT` derived from `$LANG` (e.g. `pt_BR` → `pt-BR`); fallback `en-US` |
-| 🔵 8 | Daily cap boilerplate (3 lines × 4 sources) → extracted to `_wl_daily_cap()` helper | **FIXED** — `_wl_daily_cap "X" X_LAST_DATE && return` |
+> A série 1.x está congelada em v1.8.0. Não serão adicionadas features nem corrigidos os itens abaixo. Eles serão resolvidos na arquitetura 2.x.
+
+| ID | Componente | Descrição | Impacto |
+|---|---|---|---|
+| F2 | `fetcher.sh` | `process_image` roda sobre rotações locais da galeria — re-encoda JPEG in-place a cada hora | Degradação acumulada com uso intenso da source "Local" |
+| S1 | `main.sh` | `set_gallery_dir` não valida o caminho: `prune_gallery` pode deletar fotos pessoais se o usuário escolher um dir que já tem imagens `.jpg`/`.png` | **Não use diretório com fotos pessoais como galeria** |
+| S2 | `main.sh` | FIFO de progresso criado via `mktemp -u /tmp/...` — TOCTOU race entre geração do nome e `mkfifo` | Improvável em prática; sem exploração conhecida |
+| Q1 | `main.sh` | `_gallery_navigate` chama `waylume-fetch` por nome, não por `$FETCHER_SCRIPT` | Falha silenciosa se `~/.local/bin` não está no `$PATH` |
 
 ---
 
-## Critical analysis (session 2026-04-06)
-
-| Priority | Issue | Status |
-| --- | --- | --- |
-| 🟢 1 | URL `is.gd/48OrTP` no brand strip — não clicável, parecia fraude | **FIXED** — URL removida; nome centralizado |
-| 🟢 2 | Overlay sempre ativo sem controle do usuário | **FIXED** — `SHOW_OVERLAY` + `set_overlay_toggle()` + status no header do menu |
-
----
-
-## Critical analysis (session 2026-05-13)
-
-| Priority | Issue | Status |
-| --- | --- | --- |
-| 🔴 1 | `run_with_progress` — fd 3 (write-end do pipe do progresso) herdado pelo processo do fetcher e por todos os seus filhos (`curl`, `convert`, `gsettings`). Como o subprocess não fechava explicitamente o fd, o zenity nunca recebia EOF → barra travada, app bloqueado | **FIXED** — `"$@" 3>&- &`: fd 3 fechado no subprocess antes do fork; o pipe pertence exclusivamente ao loop de progresso da shell pai |
-| 🔴 2 | `_wl_check_timeout` retornava `exit 0` em timeout de rede — `run_with_progress` reportava sucesso; diálogo "aplicado com sucesso!" aparecia mesmo sem wallpaper alterado | **FIXED** — `exit 1` em `_wl_check_timeout`; RC correto propagado ao chamador |
-| 🔴 3 | `validate_image` retornava `exit 0` em download inválido (MIME incorreto) — mesmo problema: RC=0 mascarava falha | **FIXED** — `exit 1` em `validate_image` após `rm -f "$TARGET"` |
-| 🟠 4 | `fetch_and_apply_wallpaper` exibia diálogo de sucesso incondicionalmente mesmo quando `run_with_progress` retornava falha | **FIXED** — diálogo de sucesso agora dentro de `if run_with_progress ...; then` |
-
----
-
-## Next session priorities
+## Next session priorities — início da série 2.x
 
 > See also: [ROADMAP.md](ROADMAP.md) — strategic analysis, competitive comparison, and full roadmap.
 
-1. **Position indicator** in gallery navigation — "Imagem 3 de 47" no notify-send (🟠 Medium)
-2. **Source modularisation** — split `fetcher.sh` into `src/sources/{bing,unsplash,apod,wikimedia}.sh`; thin orchestrator; warranted at 5+ sources or first external contributor
+**Objetivo do v2.0:** mesma paridade de features do v1.8, sobre arquitetura nova. Sem features novas até o 2.0 estar estável.
+
+1. **Arquitetura `.waylume.db`** — fundação da série 2.x
+   - Schema TSV: `id \t filename \t title \t source \t date_iso`
+   - Funções: `db_add`, `db_list`, `db_remove_by_id`, `db_get_by_index`
+   - Escrita atômica: `.waylume.db.tmp` + `mv`
+   - Migração one-shot de galerias existentes (lê `*.title` sidecars → popula db)
+2. **Modularização** — `src/sources/` (bing.sh, unsplash.sh, apod.sh, wikimedia.sh, local.sh); `src/lib/` (config.sh, gallery.sh, ui.sh)
+3. **`prune_gallery` via db** — apaga apenas arquivos registrados; resolve S1 definitivamente
+4. **`_gallery_navigate` via db** — índice real; resolve Q1 e habilita posição "Imagem 3 de 47"
+5. **Favoritos/lixo** — campo `status` no db (`normal`/`favorite`/`trash`); trivial com fundação certa
+6. **Validação de caminho** — `set_gallery_dir` aceita apenas subdirs de `$HOME`; resolve S1 como medida adicional
 
 ---
 
@@ -356,16 +251,16 @@ SHOW_OVERLAY="true"
 | --- | --- |
 | `waylume.sh` is a single distributed artifact | Preserves "Unix Way": `curl .../waylume.sh \| bash` works; required for LinuxToys `# nocontainer` integration |
 | `src/` holds development sources | Syntax highlighting, shellcheck, standalone testability |
-| `.desktop`, `.service`, `.timer` remain as heredocs in `src/main.sh` | Depend on variables interpolated at deploy time (`$INTERVAL`, `$FETCHER_SCRIPT`) |
-| `src/main.sh` not split yet | Global-state coupling is manageable at 741 lines; split into `src/lib/` warranted at ~900+ lines or first external contributor |
-| `src/fetcher.sh` not split into `src/sources/` yet | 4 sources, 1 maintainer; split warranted at 5+ sources or when contributors ask "where is source X logic?" |
-| `fetch_*` functions follow an implicit API contract | Input: `$TARGET` ($1), `$TODAY`,`$WL_MKT`, `$X_LAST_DATE`; Output:`$IMG_TITLE`, `$MESSAGE`, image at`$TARGET`, `X_LAST_DATE="$TODAY"`; helpers:`_wl_daily_cap`,`_wl_check_timeout`,`apply_random_local`. `_wl_check_timeout` and `validate_image` exit with **RC=1** on failure so callers can detect it. |
-| Multi-DE helpers in `fetcher.sh`, called via CLI flags from `main.sh` | `fetcher.sh` owns all wallpaper set/get logic; `main.sh` calls `waylume-fetch --set-wallpaper` / `--get-current-wallpaper` to avoid cross-file coupling |
+| `.desktop`, `.service`, `.timer` as heredocs in `src/main.sh` | Depend on variables interpolated at deploy time (`$INTERVAL`, `$FETCHER_SCRIPT`) |
+| Multi-DE helpers in `fetcher.sh`, called via CLI flags from `main.sh` | `fetcher.sh` owns all wallpaper set/get logic; `main.sh` never calls `_wl_set_wallpaper` directly |
+| Overlay composited at display time, not baked in gallery file | Gallery files stay clean; overlay toggles instantly; avoids JPEG re-encoding on navigation; sidecar `.title` decouples metadata from image |
+| `CURRENT_GALLERY` key in `waylume.state` (not a separate file) | Consistent with existing state architecture; no new file proliferation; `_wl_read_keyval` whitelist already in place |
+| `_wl_read_keyval()` whitelist parser (no `eval`, no `source`) | Prevents arbitrary code execution if conf/state files are tampered |
+| `case` dispatch for sources (not dynamic function name) | `"fetch_${SELECTED_SOURCE,,}"` would resolve to arbitrary function names; `case` limits to 4 known values |
+| `src/main.sh` not split yet | Global-state coupling manageable at ~780 lines; split into `src/lib/` warranted at ~900+ lines or first external contributor |
+| `src/fetcher.sh` not split into `src/sources/` yet | 4 sources, 1 maintainer; split warranted at 5+ sources or when contributors ask "where is source X?" |
+| i18n via `.sh` files (not gettext) | No external dependencies; compatible with single distributed file |
+| `SHOW_OVERLAY` default `true` | Overlay agrega contexto (fonte, título); usuários que preferem imagem limpa desativam via Settings |
+| APOD uses `url` (960px) | `hdurl` (4K) caused 30s+ downloads with no perceptible visual gain on a wallpaper |
 | XFCE uses `xfconf-query` property enumeration | Enumerating existing `last-image` properties solves multi-monitor automatically; no monitor name guessing |
-| `build.sh` (bash + inline Python) as build tool | Works; evolve to `Makefile + tools/assemble.py` when modularising sources/lib |
-| Future distribution path | v1.x: `build.sh → waylume.sh`; v2.x: `Makefile + waylume.sh + tarball as GitHub release asset`; v3.x+: `Makefile + tarball` as primary if distro packaging needed |
-| i18n via `.sh` files (Option B), not gettext | No external dependencies; compatible with single distributed file |
-| Plain-text brand strip (no assets) | QR codes become illegible compressed in JPEG; SVG icon looks out of place in the overlay |
-| URL removida do brand strip | Um link não clicável numa figura não tem utilidade e parece fraude; o nome `WayLume` centralizado é suficiente como identidade |
-| `SHOW_OVERLAY` default `true` | Overlay agrega contexto (fonte, título); usuários que preferem imagem limpa podem desativar via Settings |
-| APOD uses `url` (960px) | `hdurl` (4K) caused 30s+ downloads with no perceptible visual gain |
+| `build.sh` (bash + inline Python) as build tool | Works; evolve to `Makefile + tools/assemble.py` when modularising |

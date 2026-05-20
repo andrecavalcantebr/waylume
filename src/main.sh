@@ -1,10 +1,10 @@
 #!/bin/bash
 # ====================================================
 # WayLume - Minimalist Wayland Wallpaper Manager
-# Version: 1.5.0
+# Version: 1.8.0
 # ====================================================
 
-WL_VERSION="1.7.0"
+WL_VERSION="1.8.0"
 
 # --- Paths and global variables ---
 CONFIG_DIR="$HOME/.config/waylume"
@@ -93,14 +93,14 @@ _zenity() { zenity "$@" 2> >(grep -Ev "Gtk-CRITICAL.*minimum height" >&2); }
 
 # Button label presets (populated from i18n file loaded above)
 # zenity uses --ok-label / --cancel-label; OK exits 0, Cancel exits 1.
-YAD_BTN_OK=(--ok-label="${BTN_CLOSE}")
-YAD_BTN_YN=(--ok-label="${BTN_YES}"  --cancel-label="${BTN_NO}")
-YAD_BTN_OKC=(--ok-label="${BTN_OK}" --cancel-label="${BTN_CLOSE}")
+BTNS_OK=(--ok-label="${BTN_CLOSE}")
+BTNS_YN=(--ok-label="${BTN_YES}"  --cancel-label="${BTN_NO}")
+BTNS_OKC=(--ok-label="${BTN_OK}" --cancel-label="${BTN_CLOSE}")
 
 # Wrappers so button labels are consistent without repeating them everywhere
-yad_info()     { _zenity --info     "${YAD_BTN_OK[@]}"  "$@"; }
-yad_error()    { _zenity --error    "${YAD_BTN_OK[@]}"  "$@"; }
-yad_question() { _zenity --question "${YAD_BTN_YN[@]}"  "$@"; }
+yad_info()     { _zenity --info     "${BTNS_OK[@]}"  "$@"; }
+yad_error()    { _zenity --error    "${BTNS_OK[@]}"  "$@"; }
+yad_question() { _zenity --question "${BTNS_YN[@]}"  "$@"; }
 
 # Show a progress dialog, run a command, then close automatically.
 # - Task runs in background; foreground loop animates the bar (0→98%)
@@ -197,7 +197,7 @@ save_config() {
         echo "APOD_API_KEY=\"$APOD_API_KEY\""
         echo "GALLERY_MAX_FILES=\"$GALLERY_MAX_FILES\""
         echo "SHOW_OVERLAY=\"$SHOW_OVERLAY\""
-    } > "$CONF_FILE"
+    } > "${CONF_FILE}.tmp" && mv "${CONF_FILE}.tmp" "$CONF_FILE"
 }
 
 # Load config from disk, applying defaults for missing keys
@@ -315,7 +315,10 @@ EOF
         yad_info --title="WayLume" \
             --text="${MSG_UPDATE_DONE:-Updated successfully!\nScripts and timer have been updated.\nYour settings were preserved.}"
     else
-        # First install: offer to pin WayLume to the GNOME Dash favorites
+        # First install: generate fetcher script and activate the timer
+        load_config
+        deploy_services
+        # Offer to pin WayLume to the GNOME Dash favorites
         pin_to_favorites
         yad_info --title="WayLume" \
             --text="${MSG_INSTALL_DONE:-Installed successfully!\nOpen WayLume from your system application menu.}"
@@ -371,8 +374,7 @@ uninstall() {
 set_gallery_dir() {
     local NEW_DIR
     NEW_DIR=$(_zenity --file-selection --directory \
-        --title="${TITLE_GALLERY_PICK}" --filename="$DEST_DIR/" \
-        "${YAD_BTN_OKC[@]}")
+        --title="${TITLE_GALLERY_PICK}" --filename="$DEST_DIR/")
     if [ -n "$NEW_DIR" ]; then
         DEST_DIR="$NEW_DIR"
         _WL_CONFIG_DIRTY=true
@@ -401,7 +403,7 @@ set_update_interval() {
         $H_SEL   "${ITEM_INTERVAL_H:-Hours}"    "h"  \
         --print-column=3 --hide-column=3 \
         --width=320 --height=320 \
-        "${YAD_BTN_OKC[@]}")
+        "${BTNS_OKC[@]}")
     UNIT="${UNIT%%|*}"   # strip trailing pipe (defensive)
 
     [ -z "$UNIT" ] && return
@@ -415,7 +417,7 @@ set_update_interval() {
         --text="$(printf "${MSG_INTERVAL_SCALE:-Interval in %s:}" "$LABEL")" \
         --min-value=1 --max-value=60 --step=1 \
         --value="$CUR_VALUE" \
-        "${YAD_BTN_OKC[@]}")
+        "${BTNS_OKC[@]}")
 
     [ -z "$VALUE" ] && return
 
@@ -440,7 +442,7 @@ set_image_sources() {
         $BING "Bing" $UNSPLASH "Unsplash" $APOD "APOD" $WIKIMEDIA "Wikimedia" $LOCAL "Local" \
         --print-column=2 --separator="," \
         --width=320 --height=360 --hide-header \
-        "${YAD_BTN_OKC[@]}")
+        "${BTNS_OKC[@]}")
     # Strip trailing comma and any whitespace/newlines zenity may inject between items
     NEW_SOURCES=$(echo "$NEW_SOURCES" | tr -d '[:space:]' | sed 's/,$//')
 
@@ -466,7 +468,7 @@ set_apod_api_key() {
         --text="$(printf "${MSG_APOD_KEY_PROMPT:-Enter your NASA APOD API Key:\n%s}" "$KEY_HINT")" \
         --entry-text="$APOD_API_KEY" \
         --width=480 \
-        "${YAD_BTN_OKC[@]}")
+        "${BTNS_OKC[@]}")
 
     [ $? -ne 0 ] || [ -z "$NEW_KEY" ] && return
 
@@ -485,7 +487,7 @@ set_gallery_max() {
         --value="${GALLERY_MAX_FILES:-60}" \
         --min-value=0 --max-value=500 --step=10 \
         --width=480 \
-        "${YAD_BTN_OKC[@]}")
+        "${BTNS_OKC[@]}")
     [ $? -ne 0 ] && return
     GALLERY_MAX_FILES="$NEW_MAX"
     _WL_CONFIG_DIRTY=true
@@ -502,20 +504,34 @@ set_gallery_max() {
 set_overlay_toggle() {
     if [ "$SHOW_OVERLAY" = "true" ]; then
         yad_question --title="WayLume" \
-            --text="${MSG_OVERLAY_DISABLE_PROMPT:-The title overlay is currently ON.\nDisable it? Images will no longer show the WayLume brand or the image title.}"
+            --text="${MSG_OVERLAY_DISABLE_PROMPT:-The title overlay is currently ON.\nDisable it? The current wallpaper will be updated immediately.}"
         [ $? -ne 0 ] && return
         SHOW_OVERLAY="false"
-        yad_info --title="WayLume" \
-            --text="${MSG_OVERLAY_OFF:-Title overlay disabled. New downloads will not have the title bar.}"
     else
         yad_question --title="WayLume" \
-            --text="${MSG_OVERLAY_ENABLE_PROMPT:-The title overlay is currently OFF.\nEnable it? Images will show the WayLume brand and the image title.}"
+            --text="${MSG_OVERLAY_ENABLE_PROMPT:-The title overlay is currently OFF.\nEnable it? The current wallpaper will be updated immediately.}"
         [ $? -ne 0 ] && return
         SHOW_OVERLAY="true"
-        yad_info --title="WayLume" \
-            --text="${MSG_OVERLAY_ON:-Title overlay enabled. New downloads will show the title bar.}"
     fi
-    _WL_CONFIG_DIRTY=true
+
+    # Save config immediately so waylume-fetch reads the new SHOW_OVERLAY value.
+    save_config
+
+    # Re-apply the current wallpaper with the updated overlay state.
+    local _CURRENT
+    _CURRENT=$("$FETCHER_SCRIPT" --get-current-gallery 2>/dev/null)
+    if [ -n "$_CURRENT" ] && [ -f "$_CURRENT" ]; then
+        "$FETCHER_SCRIPT" --set-wallpaper "$_CURRENT" 2>/dev/null
+    fi
+
+    if [ "$SHOW_OVERLAY" = "true" ]; then
+        notify-send "WayLume" "${MSG_OVERLAY_ON:-🎨 Title overlay enabled.}"
+    else
+        notify-send "WayLume" "${MSG_OVERLAY_OFF:-🎨 Title overlay disabled.}"
+    fi
+
+    # _WL_CONFIG_DIRTY is intentionally NOT set here: config is already written
+    # to disk and overlay toggle does not require a service restart.
 }
 
 # Toggle the systemd timer on/off (pause/resume automatic wallpaper updates)
@@ -565,7 +581,7 @@ fetch_and_apply_wallpaper() {
 }
 
 # Navigate the local gallery circularly (direction: next | prev | random)
-# Images already have overlays applied — only gsettings + notify-send here.
+# Overlay is applied at display time by waylume-fetch --set-wallpaper.
 _gallery_navigate() {
     local DIRECTION="$1"
     local FILES=()
@@ -583,9 +599,11 @@ _gallery_navigate() {
     if [ "$DIRECTION" = "random" ]; then
         IDX=$(( RANDOM % COUNT ))
     else
-        # Find the currently displayed wallpaper in the sorted gallery list
+        # Find the currently displayed gallery file in the sorted list.
+        # --get-current-gallery returns the original gallery file path even when
+        # the DE's wallpaper points to the temporary overlay display file.
         local CURRENT
-        CURRENT=$(waylume-fetch --get-current-wallpaper 2>/dev/null || \
+        CURRENT=$(waylume-fetch --get-current-gallery 2>/dev/null || \
             gsettings get org.gnome.desktop.background picture-uri 2>/dev/null \
             | tr -d "'" | sed 's|file://||')
         local FOUND=false
@@ -634,7 +652,7 @@ menu_settings() {
             6 "$([ "$SHOW_OVERLAY" = "true" ] && echo "${MENU_SETTINGS_6_ON:-🎨 6. Title overlay: ON}" || echo "${MENU_SETTINGS_6_OFF:-🎨 6. Title overlay: OFF}")" \
             7 "${MENU_SETTINGS_7:-🚪 7. Exit}" \
             --width=440 --height=520 --hide-header \
-            "${YAD_BTN_OKC[@]}")
+            "${BTNS_OKC[@]}")
         CHOICE="${CHOICE%%|*}"
         [ $? -ne 0 ] || [ -z "$CHOICE" ] && break
         case "$CHOICE" in
@@ -667,7 +685,7 @@ menu_maintenance() {
             2 "${MENU_MAINTENANCE_2:-🧹 2. Limpar galeria}" \
             3 "${MENU_MAINTENANCE_3:-🗑️  3. Remover WayLume}" \
             --width=400 --height=320 --hide-header \
-            "${YAD_BTN_OKC[@]}")
+            "${BTNS_OKC[@]}")
         CHOICE="${CHOICE%%|*}"
         [ $? -ne 0 ] || [ -z "$CHOICE" ] && break
         case "$CHOICE" in
@@ -758,7 +776,7 @@ while true; do
         6 "${MENU_ITEM_6:-🔧 6. Maintenance}" \
         7 "${MENU_ITEM_7:-🚪 7. Exit}" \
         --width=480 --height=560 --hide-header \
-        "${YAD_BTN_OKC[@]}")
+        "${BTNS_OKC[@]}")
     CHOICE="${CHOICE%%|*}"   # strip trailing pipe (defensive)
 
     # Exit on window close (X button / Alt+F4) or empty selection

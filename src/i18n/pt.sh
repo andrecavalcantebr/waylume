@@ -109,10 +109,10 @@ MENU_SETTINGS_6_ON="🎨 6. Título nas imagens: ATIVADO"
 MENU_SETTINGS_6_OFF="🎨 6. Título nas imagens: DESATIVADO"
 MENU_SETTINGS_7="🚪 7. Sair"
 # ── set_overlay_toggle ─────────────────────────────────────────────────────────
-MSG_OVERLAY_DISABLE_PROMPT="O título nas imagens está ATIVADO.\nDesativar? As novas imagens não mostrarão o nome WayLume nem o título da imagem."
-MSG_OVERLAY_ENABLE_PROMPT="O título nas imagens está DESATIVADO.\nAtivar? As novas imagens mostrarão o nome WayLume e o título da imagem."
-MSG_OVERLAY_ON="Título nas imagens ativado. Os próximos downloads mostrarão a barra de título."
-MSG_OVERLAY_OFF="Título nas imagens desativado. Os próximos downloads não terão a barra de título."
+MSG_OVERLAY_DISABLE_PROMPT="O título nas imagens está ATIVADO.\nDesativar? O wallpaper atual será atualizado imediatamente."
+MSG_OVERLAY_ENABLE_PROMPT="O título nas imagens está DESATIVADO.\nAtivar? O wallpaper atual será atualizado imediatamente."
+MSG_OVERLAY_ON="🎨 Título nas imagens ativado."
+MSG_OVERLAY_OFF="🎨 Título nas imagens desativado."
 MSG_SETTINGS_APPLY_PROMPT="Configurações foram alteradas. Deseja aplicar agora?\nIsso também reinicia o timer com o novo intervalo."
 
 # ── submenu manutenção ────────────────────────────────────────────────────────────────────────────

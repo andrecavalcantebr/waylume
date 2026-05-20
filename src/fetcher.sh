@@ -41,6 +41,7 @@ _wl_read_keyval "$HOME/.config/waylume/waylume.conf" DEST_DIR INTERVAL SOURCES A
 DEST_DIR="${DEST_DIR:-$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")/WayLume}"
 SHOW_OVERLAY="${SHOW_OVERLAY:-true}"
 mkdir -p "$DEST_DIR"
+mkdir -p "$HOME/.cache/waylume"
 
 # ── i18n: detect language and load strings ────────────────────────────────────
 # LANG is injected by the systemd service Environment= directive (set at deploy time)
@@ -63,7 +64,8 @@ APOD_LAST_DATE=""
 BING_LAST_DATE=""
 UNSPLASH_LAST_DATE=""
 WIKIMEDIA_LAST_DATE=""
-[ -f "$STATE_FILE" ] && _wl_read_keyval "$STATE_FILE" APOD_LAST_DATE BING_LAST_DATE UNSPLASH_LAST_DATE WIKIMEDIA_LAST_DATE
+CURRENT_GALLERY=""
+[ -f "$STATE_FILE" ] && _wl_read_keyval "$STATE_FILE" APOD_LAST_DATE BING_LAST_DATE UNSPLASH_LAST_DATE WIKIMEDIA_LAST_DATE CURRENT_GALLERY
 
 # Shared output variables set by each fetch_* function
 IMG_TITLE=""
@@ -110,7 +112,8 @@ save_state() {
         echo "BING_LAST_DATE=\"$BING_LAST_DATE\""
         echo "UNSPLASH_LAST_DATE=\"$UNSPLASH_LAST_DATE\""
         echo "WIKIMEDIA_LAST_DATE=\"$WIKIMEDIA_LAST_DATE\""
-    } > "$STATE_FILE"
+        echo "CURRENT_GALLERY=\"$CURRENT_GALLERY\""
+    } > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
 }
 
 # Remove oldest gallery files when count exceeds GALLERY_MAX_FILES.
@@ -127,9 +130,10 @@ prune_gallery() {
     local COUNT="${#FILES[@]}"
     (( COUNT > MAX )) || return 0
 
-    # Read the active wallpaper path for the current DE.
+    # Use the tracked gallery file rather than the DE's wallpaper path:
+    # when overlay is on, the DE stores the temp display file, not the gallery file.
     local ACTIVE
-    ACTIVE=$(_wl_get_current_wallpaper)
+    ACTIVE="${CURRENT_GALLERY:-$(_wl_get_current_wallpaper)}"
 
     local TO_DELETE=$(( COUNT - MAX ))
     local f deleted=0
@@ -137,7 +141,7 @@ prune_gallery() {
         (( deleted >= TO_DELETE )) && break
         # Skip the active wallpaper — deleting it would cause a black screen on next change.
         [[ "$f" == "$ACTIVE" ]] && continue
-        rm -f -- "$f"
+        rm -f -- "$f" "${f}.title"
         (( deleted++ ))
     done
 }
@@ -321,9 +325,9 @@ validate_image() {
     fi
 }
 
-# Resize to exact screen resolution (fill + center crop) and optionally
-# overlay a semi-transparent title bar at the top-right corner.
-# Single ImageMagick pass — avoids double JPEG re-encoding.
+# Resize to exact screen resolution (fill + center crop).
+# The title sidecar (TARGET.title) is written by the caller after this function.
+# Overlay is applied at display time by _wl_make_display_image(), not here.
 process_image() {
     local TARGET="$1"
     [ -f "$TARGET" ] && command -v convert &>/dev/null || return
@@ -338,54 +342,68 @@ process_image() {
     SCREEN_H=${SCREEN_RES#*x}
     [ -n "$SCREEN_W" ] && [ -n "$SCREEN_H" ] || return
 
+    convert "$TARGET" \
+        -resize "${SCREEN_W}x${SCREEN_H}^" \
+        -gravity Center \
+        -extent "${SCREEN_W}x${SCREEN_H}" \
+        "$TARGET" 2>/dev/null
+}
+
+# Build the image that will be set as wallpaper.
+# If SHOW_OVERLAY=true and a .title sidecar exists alongside TARGET, the overlay
+# is composited onto a temporary display file; otherwise TARGET is used directly.
+# Sets the global DISPLAY_PATH to the path to pass to _wl_set_wallpaper.
+# Always writes ~/.cache/waylume/waylume_current.txt so gallery navigation can
+# find the active gallery file even when DISPLAY_PATH points to the temp file.
+_wl_make_display_image() {
+    local TARGET="$1"
+    DISPLAY_PATH="$TARGET"
+
+    # Track the gallery file in memory (persisted to waylume.state via save_state).
+    # Needed because when overlay is on, the DE stores the temp display file path,
+    # not the original gallery file, which would break next/prev navigation.
+    CURRENT_GALLERY="$TARGET"
+
+    [ -f "$TARGET" ] && command -v convert &>/dev/null || return
+    [ "$SHOW_OVERLAY" = "true" ] || return
+
+    local TITLE_FILE="${TARGET}.title"
+    [ -f "$TITLE_FILE" ] || return
+    local TITLE
+    TITLE=$(< "$TITLE_FILE")
+    [ -z "$TITLE" ] && return
+
+    # Sanitise before passing to ImageMagick -annotate:
+    # 1. Truncate to 120 chars.
+    # 2. Escape '%' → '%%': ImageMagick treats bare % as a format specifier
+    #    (e.g. %f expands to the filename, %[exif:...] to EXIF fields).
+    #    A crafted API response like {"title": "%[exif:ImageDescription]"}
+    #    would cause ImageMagick to render arbitrary image metadata instead
+    #    of the intended title text.
+    # 3. Strip C0 control characters (0x00-0x1F) and DEL (0x7F):
+    #    Control bytes embedded in the title (e.g. \n, \t, \r) could
+    #    misalign the overlay text or be mis-interpreted by the shell
+    #    when expanded inside the double-quoted -annotate argument.
+    TITLE="${TITLE:0:120}"
+    TITLE="${TITLE//%/%%}"
+    TITLE=$(printf '%s' "$TITLE" | tr -d '\000-\037\177')
+
+    local IMG_W
+    IMG_W=$(identify -format '%w' "$TARGET" 2>/dev/null)
+    [ -z "$IMG_W" ] && IMG_W=1920
+
     local BAR=52
+    local DISPLAY_FILE="$HOME/.cache/waylume/waylume_display.jpg"
 
-    if [ -n "$IMG_TITLE" ]; then
-        local DISPLAY_TITLE="${IMG_TITLE:0:120}"
-
-        # Sanitise before passing to ImageMagick -annotate:
-        #
-        # 1. Escape '%' → '%%': ImageMagick treats bare % as a format specifier
-        #    (e.g. %f expands to the filename, %[exif:...] to EXIF fields).
-        #    A crafted API response like {"title": "%[exif:ImageDescription]"}
-        #    would cause ImageMagick to render arbitrary image metadata instead
-        #    of the intended title text.
-        DISPLAY_TITLE="${DISPLAY_TITLE//%/%%}"
-
-        # 2. Strip C0 control characters (0x00-0x1F) and DEL (0x7F):
-        #    Control bytes embedded in the title (e.g. \n, \t, \r) could
-        #    misalign the overlay text or be mis-interpreted by the shell
-        #    when expanded inside the double-quoted -annotate argument.
-        DISPLAY_TITLE=$(printf '%s' "$DISPLAY_TITLE" | tr -d '\000-\037\177')
-
-        if [ "$SHOW_OVERLAY" = "true" ]; then
-            # Resize → crop → composite bar → brand (centered N) → title (NE): one pass
-            convert "$TARGET" \
-                -resize "${SCREEN_W}x${SCREEN_H}^" \
-                -gravity Center \
-                -extent "${SCREEN_W}x${SCREEN_H}" \
-                \( -size "${SCREEN_W}x${BAR}" xc:"rgba(0,0,0,0.65)" \) \
-                -gravity North -composite \
-                -font DejaVu-Sans-Bold -pointsize 15 \
-                -fill white -gravity NorthWest -annotate +20+17 " WayLume " \
-                -font DejaVu-Sans -pointsize 24 \
-                -fill white -gravity NorthEast -annotate +20+14 " ${DISPLAY_TITLE} " \
-                "$TARGET" 2>/dev/null
-        else
-            # Overlay disabled: just resize + center crop, no bar or text.
-            convert "$TARGET" \
-                -resize "${SCREEN_W}x${SCREEN_H}^" \
-                -gravity Center \
-                -extent "${SCREEN_W}x${SCREEN_H}" \
-                "$TARGET" 2>/dev/null
-        fi
-    else
-        # No title: just resize + center crop.
-        convert "$TARGET" \
-            -resize "${SCREEN_W}x${SCREEN_H}^" \
-            -gravity Center \
-            -extent "${SCREEN_W}x${SCREEN_H}" \
-            "$TARGET" 2>/dev/null
+    if convert "$TARGET" \
+        \( -size "${IMG_W}x${BAR}" xc:"rgba(0,0,0,0.65)" \) \
+        -gravity North -composite \
+        -font DejaVu-Sans-Bold -pointsize 15 \
+        -fill white -gravity NorthWest -annotate +20+17 " WayLume " \
+        -font DejaVu-Sans -pointsize 24 \
+        -fill white -gravity NorthEast -annotate +20+14 " ${TITLE} " \
+        "$DISPLAY_FILE" 2>/dev/null; then
+        DISPLAY_PATH="$DISPLAY_FILE"
     fi
 }
 
@@ -460,10 +478,12 @@ _wl_get_current_wallpaper() {
 }
 
 # Apply the wallpaper and notify the user.
+# Calls _wl_make_display_image to overlay the title bar if SHOW_OVERLAY=true.
 apply_wallpaper() {
     local TARGET="$1"
     [ -f "$TARGET" ] || return
-    _wl_set_wallpaper "$TARGET"
+    _wl_make_display_image "$TARGET"
+    _wl_set_wallpaper "$DISPLAY_PATH"
     notify-send "WayLume" "$MESSAGE"
 }
 
@@ -473,25 +493,42 @@ apply_wallpaper() {
 
 if [ "$1" == "--random" ]; then
     # Mode: rotate a random image already in the local gallery.
-    # Gallery files are already resized and have the overlay applied —
-    # skip save_state, validate_image and process_image to avoid
-    # lossy JPEG re-encoding on every manual rotation.
+    # Gallery files are clean (no overlay baked in) — skip save_state,
+    # validate_image, and process_image; overlay is applied at display
+    # time inside apply_wallpaper via _wl_make_display_image.
     apply_random_local "manual"
     apply_wallpaper "$TARGET_PATH"
+    save_state
     exit 0
 fi
 
 if [ "$1" == "--set-wallpaper" ]; then
     # Mode: set a specific image as the wallpaper (called from the main GUI for
     # gallery navigation — bypasses download and image processing).
+    # Overlay is applied at display time via _wl_make_display_image.
     [ -n "$2" ] || exit 1
-    _wl_set_wallpaper "$2"
+    _wl_make_display_image "$2"
+    _wl_set_wallpaper "$DISPLAY_PATH"
+    save_state
     exit 0
 fi
 
 if [ "$1" == "--get-current-wallpaper" ]; then
     # Mode: print the currently active wallpaper path for the current DE.
     _wl_get_current_wallpaper
+    exit 0
+fi
+
+if [ "$1" == "--get-current-gallery" ]; then
+    # Mode: print the gallery file currently being displayed.
+    # CURRENT_GALLERY is loaded from waylume.state at startup and updated by
+    # _wl_make_display_image on every wallpaper change, so it always points to
+    # the original gallery file (never the temporary overlay display file).
+    if [ -n "$CURRENT_GALLERY" ]; then
+        echo "$CURRENT_GALLERY"
+    else
+        _wl_get_current_wallpaper
+    fi
     exit 0
 fi
 
@@ -526,5 +563,9 @@ save_state
 
 validate_image  "$TARGET_PATH"
 process_image   "$TARGET_PATH"
+# Persist title metadata alongside the gallery file so _wl_make_display_image
+# can read it at display time (overlay is no longer baked into the stored image).
+[ -n "$IMG_TITLE" ] && printf '%s' "$IMG_TITLE" > "${TARGET_PATH}.title"
 apply_wallpaper "$TARGET_PATH"
+save_state   # persists CURRENT_GALLERY set by _wl_make_display_image
 prune_gallery

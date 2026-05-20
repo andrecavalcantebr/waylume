@@ -111,10 +111,10 @@ MENU_SETTINGS_6_ON="🎨 6. Title overlay: ON"
 MENU_SETTINGS_6_OFF="🎨 6. Title overlay: OFF"
 MENU_SETTINGS_7="🚪 7. Exit"
 # ── set_overlay_toggle ─────────────────────────────────────────────────────────
-MSG_OVERLAY_DISABLE_PROMPT="The title overlay is currently ON.\nDisable it? Images will no longer show the WayLume brand or the image title."
-MSG_OVERLAY_ENABLE_PROMPT="The title overlay is currently OFF.\nEnable it? Images will show the WayLume brand and the image title."
-MSG_OVERLAY_ON="Title overlay enabled. New downloads will show the title bar."
-MSG_OVERLAY_OFF="Title overlay disabled. New downloads will not have the title bar."
+MSG_OVERLAY_DISABLE_PROMPT="The title overlay is currently ON.\nDisable it? The current wallpaper will be updated immediately."
+MSG_OVERLAY_ENABLE_PROMPT="The title overlay is currently OFF.\nEnable it? The current wallpaper will be updated immediately."
+MSG_OVERLAY_ON="🎨 Title overlay enabled."
+MSG_OVERLAY_OFF="🎨 Title overlay disabled."
 MSG_SETTINGS_APPLY_PROMPT="Settings were changed. Do you want to apply now?\nThis will also restart the timer with the new interval."
 
 # ── maintenance submenu ────────────────────────────────────────────────────────────────────────────

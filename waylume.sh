@@ -1,10 +1,10 @@
 #!/bin/bash
 # ====================================================
 # WayLume - Minimalist Wayland Wallpaper Manager
-# Version: 1.5.0
+# Version: 1.8.0
 # ====================================================
 
-WL_VERSION="1.7.0"
+WL_VERSION="1.8.0"
 
 # --- Paths and global variables ---
 CONFIG_DIR="$HOME/.config/waylume"
@@ -93,14 +93,14 @@ _zenity() { zenity "$@" 2> >(grep -Ev "Gtk-CRITICAL.*minimum height" >&2); }
 
 # Button label presets (populated from i18n file loaded above)
 # zenity uses --ok-label / --cancel-label; OK exits 0, Cancel exits 1.
-YAD_BTN_OK=(--ok-label="${BTN_CLOSE}")
-YAD_BTN_YN=(--ok-label="${BTN_YES}"  --cancel-label="${BTN_NO}")
-YAD_BTN_OKC=(--ok-label="${BTN_OK}" --cancel-label="${BTN_CLOSE}")
+BTNS_OK=(--ok-label="${BTN_CLOSE}")
+BTNS_YN=(--ok-label="${BTN_YES}"  --cancel-label="${BTN_NO}")
+BTNS_OKC=(--ok-label="${BTN_OK}" --cancel-label="${BTN_CLOSE}")
 
 # Wrappers so button labels are consistent without repeating them everywhere
-yad_info()     { _zenity --info     "${YAD_BTN_OK[@]}"  "$@"; }
-yad_error()    { _zenity --error    "${YAD_BTN_OK[@]}"  "$@"; }
-yad_question() { _zenity --question "${YAD_BTN_YN[@]}"  "$@"; }
+yad_info()     { _zenity --info     "${BTNS_OK[@]}"  "$@"; }
+yad_error()    { _zenity --error    "${BTNS_OK[@]}"  "$@"; }
+yad_question() { _zenity --question "${BTNS_YN[@]}"  "$@"; }
 
 # Show a progress dialog, run a command, then close automatically.
 # - Task runs in background; foreground loop animates the bar (0→98%)
@@ -197,7 +197,7 @@ save_config() {
         echo "APOD_API_KEY=\"$APOD_API_KEY\""
         echo "GALLERY_MAX_FILES=\"$GALLERY_MAX_FILES\""
         echo "SHOW_OVERLAY=\"$SHOW_OVERLAY\""
-    } > "$CONF_FILE"
+    } > "${CONF_FILE}.tmp" && mv "${CONF_FILE}.tmp" "$CONF_FILE"
 }
 
 # Load config from disk, applying defaults for missing keys
@@ -260,6 +260,7 @@ _wl_read_keyval "$HOME/.config/waylume/waylume.conf" DEST_DIR INTERVAL SOURCES A
 DEST_DIR="${DEST_DIR:-$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")/WayLume}"
 SHOW_OVERLAY="${SHOW_OVERLAY:-true}"
 mkdir -p "$DEST_DIR"
+mkdir -p "$HOME/.cache/waylume"
 
 # ── i18n: detect language and load strings ────────────────────────────────────
 # LANG is injected by the systemd service Environment= directive (set at deploy time)
@@ -282,7 +283,8 @@ APOD_LAST_DATE=""
 BING_LAST_DATE=""
 UNSPLASH_LAST_DATE=""
 WIKIMEDIA_LAST_DATE=""
-[ -f "$STATE_FILE" ] && _wl_read_keyval "$STATE_FILE" APOD_LAST_DATE BING_LAST_DATE UNSPLASH_LAST_DATE WIKIMEDIA_LAST_DATE
+CURRENT_GALLERY=""
+[ -f "$STATE_FILE" ] && _wl_read_keyval "$STATE_FILE" APOD_LAST_DATE BING_LAST_DATE UNSPLASH_LAST_DATE WIKIMEDIA_LAST_DATE CURRENT_GALLERY
 
 # Shared output variables set by each fetch_* function
 IMG_TITLE=""
@@ -329,7 +331,8 @@ save_state() {
         echo "BING_LAST_DATE=\"$BING_LAST_DATE\""
         echo "UNSPLASH_LAST_DATE=\"$UNSPLASH_LAST_DATE\""
         echo "WIKIMEDIA_LAST_DATE=\"$WIKIMEDIA_LAST_DATE\""
-    } > "$STATE_FILE"
+        echo "CURRENT_GALLERY=\"$CURRENT_GALLERY\""
+    } > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
 }
 
 # Remove oldest gallery files when count exceeds GALLERY_MAX_FILES.
@@ -346,9 +349,10 @@ prune_gallery() {
     local COUNT="${#FILES[@]}"
     (( COUNT > MAX )) || return 0
 
-    # Read the active wallpaper path for the current DE.
+    # Use the tracked gallery file rather than the DE's wallpaper path:
+    # when overlay is on, the DE stores the temp display file, not the gallery file.
     local ACTIVE
-    ACTIVE=$(_wl_get_current_wallpaper)
+    ACTIVE="${CURRENT_GALLERY:-$(_wl_get_current_wallpaper)}"
 
     local TO_DELETE=$(( COUNT - MAX ))
     local f deleted=0
@@ -356,7 +360,7 @@ prune_gallery() {
         (( deleted >= TO_DELETE )) && break
         # Skip the active wallpaper — deleting it would cause a black screen on next change.
         [[ "$f" == "$ACTIVE" ]] && continue
-        rm -f -- "$f"
+        rm -f -- "$f" "${f}.title"
         (( deleted++ ))
     done
 }
@@ -540,9 +544,9 @@ validate_image() {
     fi
 }
 
-# Resize to exact screen resolution (fill + center crop) and optionally
-# overlay a semi-transparent title bar at the top-right corner.
-# Single ImageMagick pass — avoids double JPEG re-encoding.
+# Resize to exact screen resolution (fill + center crop).
+# The title sidecar (TARGET.title) is written by the caller after this function.
+# Overlay is applied at display time by _wl_make_display_image(), not here.
 process_image() {
     local TARGET="$1"
     [ -f "$TARGET" ] && command -v convert &>/dev/null || return
@@ -557,54 +561,68 @@ process_image() {
     SCREEN_H=${SCREEN_RES#*x}
     [ -n "$SCREEN_W" ] && [ -n "$SCREEN_H" ] || return
 
+    convert "$TARGET" \
+        -resize "${SCREEN_W}x${SCREEN_H}^" \
+        -gravity Center \
+        -extent "${SCREEN_W}x${SCREEN_H}" \
+        "$TARGET" 2>/dev/null
+}
+
+# Build the image that will be set as wallpaper.
+# If SHOW_OVERLAY=true and a .title sidecar exists alongside TARGET, the overlay
+# is composited onto a temporary display file; otherwise TARGET is used directly.
+# Sets the global DISPLAY_PATH to the path to pass to _wl_set_wallpaper.
+# Always writes ~/.cache/waylume/waylume_current.txt so gallery navigation can
+# find the active gallery file even when DISPLAY_PATH points to the temp file.
+_wl_make_display_image() {
+    local TARGET="$1"
+    DISPLAY_PATH="$TARGET"
+
+    # Track the gallery file in memory (persisted to waylume.state via save_state).
+    # Needed because when overlay is on, the DE stores the temp display file path,
+    # not the original gallery file, which would break next/prev navigation.
+    CURRENT_GALLERY="$TARGET"
+
+    [ -f "$TARGET" ] && command -v convert &>/dev/null || return
+    [ "$SHOW_OVERLAY" = "true" ] || return
+
+    local TITLE_FILE="${TARGET}.title"
+    [ -f "$TITLE_FILE" ] || return
+    local TITLE
+    TITLE=$(< "$TITLE_FILE")
+    [ -z "$TITLE" ] && return
+
+    # Sanitise before passing to ImageMagick -annotate:
+    # 1. Truncate to 120 chars.
+    # 2. Escape '%' → '%%': ImageMagick treats bare % as a format specifier
+    #    (e.g. %f expands to the filename, %[exif:...] to EXIF fields).
+    #    A crafted API response like {"title": "%[exif:ImageDescription]"}
+    #    would cause ImageMagick to render arbitrary image metadata instead
+    #    of the intended title text.
+    # 3. Strip C0 control characters (0x00-0x1F) and DEL (0x7F):
+    #    Control bytes embedded in the title (e.g. \n, \t, \r) could
+    #    misalign the overlay text or be mis-interpreted by the shell
+    #    when expanded inside the double-quoted -annotate argument.
+    TITLE="${TITLE:0:120}"
+    TITLE="${TITLE//%/%%}"
+    TITLE=$(printf '%s' "$TITLE" | tr -d '\000-\037\177')
+
+    local IMG_W
+    IMG_W=$(identify -format '%w' "$TARGET" 2>/dev/null)
+    [ -z "$IMG_W" ] && IMG_W=1920
+
     local BAR=52
+    local DISPLAY_FILE="$HOME/.cache/waylume/waylume_display.jpg"
 
-    if [ -n "$IMG_TITLE" ]; then
-        local DISPLAY_TITLE="${IMG_TITLE:0:120}"
-
-        # Sanitise before passing to ImageMagick -annotate:
-        #
-        # 1. Escape '%' → '%%': ImageMagick treats bare % as a format specifier
-        #    (e.g. %f expands to the filename, %[exif:...] to EXIF fields).
-        #    A crafted API response like {"title": "%[exif:ImageDescription]"}
-        #    would cause ImageMagick to render arbitrary image metadata instead
-        #    of the intended title text.
-        DISPLAY_TITLE="${DISPLAY_TITLE//%/%%}"
-
-        # 2. Strip C0 control characters (0x00-0x1F) and DEL (0x7F):
-        #    Control bytes embedded in the title (e.g. \n, \t, \r) could
-        #    misalign the overlay text or be mis-interpreted by the shell
-        #    when expanded inside the double-quoted -annotate argument.
-        DISPLAY_TITLE=$(printf '%s' "$DISPLAY_TITLE" | tr -d '\000-\037\177')
-
-        if [ "$SHOW_OVERLAY" = "true" ]; then
-            # Resize → crop → composite bar → brand (centered N) → title (NE): one pass
-            convert "$TARGET" \
-                -resize "${SCREEN_W}x${SCREEN_H}^" \
-                -gravity Center \
-                -extent "${SCREEN_W}x${SCREEN_H}" \
-                \( -size "${SCREEN_W}x${BAR}" xc:"rgba(0,0,0,0.65)" \) \
-                -gravity North -composite \
-                -font DejaVu-Sans-Bold -pointsize 15 \
-                -fill white -gravity NorthWest -annotate +20+17 " WayLume " \
-                -font DejaVu-Sans -pointsize 24 \
-                -fill white -gravity NorthEast -annotate +20+14 " ${DISPLAY_TITLE} " \
-                "$TARGET" 2>/dev/null
-        else
-            # Overlay disabled: just resize + center crop, no bar or text.
-            convert "$TARGET" \
-                -resize "${SCREEN_W}x${SCREEN_H}^" \
-                -gravity Center \
-                -extent "${SCREEN_W}x${SCREEN_H}" \
-                "$TARGET" 2>/dev/null
-        fi
-    else
-        # No title: just resize + center crop.
-        convert "$TARGET" \
-            -resize "${SCREEN_W}x${SCREEN_H}^" \
-            -gravity Center \
-            -extent "${SCREEN_W}x${SCREEN_H}" \
-            "$TARGET" 2>/dev/null
+    if convert "$TARGET" \
+        \( -size "${IMG_W}x${BAR}" xc:"rgba(0,0,0,0.65)" \) \
+        -gravity North -composite \
+        -font DejaVu-Sans-Bold -pointsize 15 \
+        -fill white -gravity NorthWest -annotate +20+17 " WayLume " \
+        -font DejaVu-Sans -pointsize 24 \
+        -fill white -gravity NorthEast -annotate +20+14 " ${TITLE} " \
+        "$DISPLAY_FILE" 2>/dev/null; then
+        DISPLAY_PATH="$DISPLAY_FILE"
     fi
 }
 
@@ -679,10 +697,12 @@ _wl_get_current_wallpaper() {
 }
 
 # Apply the wallpaper and notify the user.
+# Calls _wl_make_display_image to overlay the title bar if SHOW_OVERLAY=true.
 apply_wallpaper() {
     local TARGET="$1"
     [ -f "$TARGET" ] || return
-    _wl_set_wallpaper "$TARGET"
+    _wl_make_display_image "$TARGET"
+    _wl_set_wallpaper "$DISPLAY_PATH"
     notify-send "WayLume" "$MESSAGE"
 }
 
@@ -692,25 +712,42 @@ apply_wallpaper() {
 
 if [ "$1" == "--random" ]; then
     # Mode: rotate a random image already in the local gallery.
-    # Gallery files are already resized and have the overlay applied —
-    # skip save_state, validate_image and process_image to avoid
-    # lossy JPEG re-encoding on every manual rotation.
+    # Gallery files are clean (no overlay baked in) — skip save_state,
+    # validate_image, and process_image; overlay is applied at display
+    # time inside apply_wallpaper via _wl_make_display_image.
     apply_random_local "manual"
     apply_wallpaper "$TARGET_PATH"
+    save_state
     exit 0
 fi
 
 if [ "$1" == "--set-wallpaper" ]; then
     # Mode: set a specific image as the wallpaper (called from the main GUI for
     # gallery navigation — bypasses download and image processing).
+    # Overlay is applied at display time via _wl_make_display_image.
     [ -n "$2" ] || exit 1
-    _wl_set_wallpaper "$2"
+    _wl_make_display_image "$2"
+    _wl_set_wallpaper "$DISPLAY_PATH"
+    save_state
     exit 0
 fi
 
 if [ "$1" == "--get-current-wallpaper" ]; then
     # Mode: print the currently active wallpaper path for the current DE.
     _wl_get_current_wallpaper
+    exit 0
+fi
+
+if [ "$1" == "--get-current-gallery" ]; then
+    # Mode: print the gallery file currently being displayed.
+    # CURRENT_GALLERY is loaded from waylume.state at startup and updated by
+    # _wl_make_display_image on every wallpaper change, so it always points to
+    # the original gallery file (never the temporary overlay display file).
+    if [ -n "$CURRENT_GALLERY" ]; then
+        echo "$CURRENT_GALLERY"
+    else
+        _wl_get_current_wallpaper
+    fi
     exit 0
 fi
 
@@ -745,7 +782,11 @@ save_state
 
 validate_image  "$TARGET_PATH"
 process_image   "$TARGET_PATH"
+# Persist title metadata alongside the gallery file so _wl_make_display_image
+# can read it at display time (overlay is no longer baked into the stored image).
+[ -n "$IMG_TITLE" ] && printf '%s' "$IMG_TITLE" > "${TARGET_PATH}.title"
 apply_wallpaper "$TARGET_PATH"
+save_state   # persists CURRENT_GALLERY set by _wl_make_display_image
 prune_gallery
 EOF
     chmod +x "$FETCHER_SCRIPT"
@@ -940,10 +981,10 @@ MENU_SETTINGS_6_ON="🎨 6. Título nas imagens: ATIVADO"
 MENU_SETTINGS_6_OFF="🎨 6. Título nas imagens: DESATIVADO"
 MENU_SETTINGS_7="🚪 7. Sair"
 # ── set_overlay_toggle ─────────────────────────────────────────────────────────
-MSG_OVERLAY_DISABLE_PROMPT="O título nas imagens está ATIVADO.\nDesativar? As novas imagens não mostrarão o nome WayLume nem o título da imagem."
-MSG_OVERLAY_ENABLE_PROMPT="O título nas imagens está DESATIVADO.\nAtivar? As novas imagens mostrarão o nome WayLume e o título da imagem."
-MSG_OVERLAY_ON="Título nas imagens ativado. Os próximos downloads mostrarão a barra de título."
-MSG_OVERLAY_OFF="Título nas imagens desativado. Os próximos downloads não terão a barra de título."
+MSG_OVERLAY_DISABLE_PROMPT="O título nas imagens está ATIVADO.\nDesativar? O wallpaper atual será atualizado imediatamente."
+MSG_OVERLAY_ENABLE_PROMPT="O título nas imagens está DESATIVADO.\nAtivar? O wallpaper atual será atualizado imediatamente."
+MSG_OVERLAY_ON="🎨 Título nas imagens ativado."
+MSG_OVERLAY_OFF="🎨 Título nas imagens desativado."
 MSG_SETTINGS_APPLY_PROMPT="Configurações foram alteradas. Deseja aplicar agora?\nIsso também reinicia o timer com o novo intervalo."
 
 # ── submenu manutenção ────────────────────────────────────────────────────────────────────────────
@@ -1087,10 +1128,10 @@ MENU_SETTINGS_6_ON="🎨 6. Title overlay: ON"
 MENU_SETTINGS_6_OFF="🎨 6. Title overlay: OFF"
 MENU_SETTINGS_7="🚪 7. Exit"
 # ── set_overlay_toggle ─────────────────────────────────────────────────────────
-MSG_OVERLAY_DISABLE_PROMPT="The title overlay is currently ON.\nDisable it? Images will no longer show the WayLume brand or the image title."
-MSG_OVERLAY_ENABLE_PROMPT="The title overlay is currently OFF.\nEnable it? Images will show the WayLume brand and the image title."
-MSG_OVERLAY_ON="Title overlay enabled. New downloads will show the title bar."
-MSG_OVERLAY_OFF="Title overlay disabled. New downloads will not have the title bar."
+MSG_OVERLAY_DISABLE_PROMPT="The title overlay is currently ON.\nDisable it? The current wallpaper will be updated immediately."
+MSG_OVERLAY_ENABLE_PROMPT="The title overlay is currently OFF.\nEnable it? The current wallpaper will be updated immediately."
+MSG_OVERLAY_ON="🎨 Title overlay enabled."
+MSG_OVERLAY_OFF="🎨 Title overlay disabled."
 MSG_SETTINGS_APPLY_PROMPT="Settings were changed. Do you want to apply now?\nThis will also restart the timer with the new interval."
 
 # ── maintenance submenu ────────────────────────────────────────────────────────────────────────────
@@ -1152,7 +1193,10 @@ EOF
         yad_info --title="WayLume" \
             --text="${MSG_UPDATE_DONE:-Updated successfully!\nScripts and timer have been updated.\nYour settings were preserved.}"
     else
-        # First install: offer to pin WayLume to the GNOME Dash favorites
+        # First install: generate fetcher script and activate the timer
+        load_config
+        deploy_services
+        # Offer to pin WayLume to the GNOME Dash favorites
         pin_to_favorites
         yad_info --title="WayLume" \
             --text="${MSG_INSTALL_DONE:-Installed successfully!\nOpen WayLume from your system application menu.}"
@@ -1208,8 +1252,7 @@ uninstall() {
 set_gallery_dir() {
     local NEW_DIR
     NEW_DIR=$(_zenity --file-selection --directory \
-        --title="${TITLE_GALLERY_PICK}" --filename="$DEST_DIR/" \
-        "${YAD_BTN_OKC[@]}")
+        --title="${TITLE_GALLERY_PICK}" --filename="$DEST_DIR/")
     if [ -n "$NEW_DIR" ]; then
         DEST_DIR="$NEW_DIR"
         _WL_CONFIG_DIRTY=true
@@ -1238,7 +1281,7 @@ set_update_interval() {
         $H_SEL   "${ITEM_INTERVAL_H:-Hours}"    "h"  \
         --print-column=3 --hide-column=3 \
         --width=320 --height=320 \
-        "${YAD_BTN_OKC[@]}")
+        "${BTNS_OKC[@]}")
     UNIT="${UNIT%%|*}"   # strip trailing pipe (defensive)
 
     [ -z "$UNIT" ] && return
@@ -1252,7 +1295,7 @@ set_update_interval() {
         --text="$(printf "${MSG_INTERVAL_SCALE:-Interval in %s:}" "$LABEL")" \
         --min-value=1 --max-value=60 --step=1 \
         --value="$CUR_VALUE" \
-        "${YAD_BTN_OKC[@]}")
+        "${BTNS_OKC[@]}")
 
     [ -z "$VALUE" ] && return
 
@@ -1277,7 +1320,7 @@ set_image_sources() {
         $BING "Bing" $UNSPLASH "Unsplash" $APOD "APOD" $WIKIMEDIA "Wikimedia" $LOCAL "Local" \
         --print-column=2 --separator="," \
         --width=320 --height=360 --hide-header \
-        "${YAD_BTN_OKC[@]}")
+        "${BTNS_OKC[@]}")
     # Strip trailing comma and any whitespace/newlines zenity may inject between items
     NEW_SOURCES=$(echo "$NEW_SOURCES" | tr -d '[:space:]' | sed 's/,$//')
 
@@ -1303,7 +1346,7 @@ set_apod_api_key() {
         --text="$(printf "${MSG_APOD_KEY_PROMPT:-Enter your NASA APOD API Key:\n%s}" "$KEY_HINT")" \
         --entry-text="$APOD_API_KEY" \
         --width=480 \
-        "${YAD_BTN_OKC[@]}")
+        "${BTNS_OKC[@]}")
 
     [ $? -ne 0 ] || [ -z "$NEW_KEY" ] && return
 
@@ -1322,7 +1365,7 @@ set_gallery_max() {
         --value="${GALLERY_MAX_FILES:-60}" \
         --min-value=0 --max-value=500 --step=10 \
         --width=480 \
-        "${YAD_BTN_OKC[@]}")
+        "${BTNS_OKC[@]}")
     [ $? -ne 0 ] && return
     GALLERY_MAX_FILES="$NEW_MAX"
     _WL_CONFIG_DIRTY=true
@@ -1339,20 +1382,34 @@ set_gallery_max() {
 set_overlay_toggle() {
     if [ "$SHOW_OVERLAY" = "true" ]; then
         yad_question --title="WayLume" \
-            --text="${MSG_OVERLAY_DISABLE_PROMPT:-The title overlay is currently ON.\nDisable it? Images will no longer show the WayLume brand or the image title.}"
+            --text="${MSG_OVERLAY_DISABLE_PROMPT:-The title overlay is currently ON.\nDisable it? The current wallpaper will be updated immediately.}"
         [ $? -ne 0 ] && return
         SHOW_OVERLAY="false"
-        yad_info --title="WayLume" \
-            --text="${MSG_OVERLAY_OFF:-Title overlay disabled. New downloads will not have the title bar.}"
     else
         yad_question --title="WayLume" \
-            --text="${MSG_OVERLAY_ENABLE_PROMPT:-The title overlay is currently OFF.\nEnable it? Images will show the WayLume brand and the image title.}"
+            --text="${MSG_OVERLAY_ENABLE_PROMPT:-The title overlay is currently OFF.\nEnable it? The current wallpaper will be updated immediately.}"
         [ $? -ne 0 ] && return
         SHOW_OVERLAY="true"
-        yad_info --title="WayLume" \
-            --text="${MSG_OVERLAY_ON:-Title overlay enabled. New downloads will show the title bar.}"
     fi
-    _WL_CONFIG_DIRTY=true
+
+    # Save config immediately so waylume-fetch reads the new SHOW_OVERLAY value.
+    save_config
+
+    # Re-apply the current wallpaper with the updated overlay state.
+    local _CURRENT
+    _CURRENT=$("$FETCHER_SCRIPT" --get-current-gallery 2>/dev/null)
+    if [ -n "$_CURRENT" ] && [ -f "$_CURRENT" ]; then
+        "$FETCHER_SCRIPT" --set-wallpaper "$_CURRENT" 2>/dev/null
+    fi
+
+    if [ "$SHOW_OVERLAY" = "true" ]; then
+        notify-send "WayLume" "${MSG_OVERLAY_ON:-🎨 Title overlay enabled.}"
+    else
+        notify-send "WayLume" "${MSG_OVERLAY_OFF:-🎨 Title overlay disabled.}"
+    fi
+
+    # _WL_CONFIG_DIRTY is intentionally NOT set here: config is already written
+    # to disk and overlay toggle does not require a service restart.
 }
 
 # Toggle the systemd timer on/off (pause/resume automatic wallpaper updates)
@@ -1402,7 +1459,7 @@ fetch_and_apply_wallpaper() {
 }
 
 # Navigate the local gallery circularly (direction: next | prev | random)
-# Images already have overlays applied — only gsettings + notify-send here.
+# Overlay is applied at display time by waylume-fetch --set-wallpaper.
 _gallery_navigate() {
     local DIRECTION="$1"
     local FILES=()
@@ -1420,9 +1477,11 @@ _gallery_navigate() {
     if [ "$DIRECTION" = "random" ]; then
         IDX=$(( RANDOM % COUNT ))
     else
-        # Find the currently displayed wallpaper in the sorted gallery list
+        # Find the currently displayed gallery file in the sorted list.
+        # --get-current-gallery returns the original gallery file path even when
+        # the DE's wallpaper points to the temporary overlay display file.
         local CURRENT
-        CURRENT=$(waylume-fetch --get-current-wallpaper 2>/dev/null || \
+        CURRENT=$(waylume-fetch --get-current-gallery 2>/dev/null || \
             gsettings get org.gnome.desktop.background picture-uri 2>/dev/null \
             | tr -d "'" | sed 's|file://||')
         local FOUND=false
@@ -1471,7 +1530,7 @@ menu_settings() {
             6 "$([ "$SHOW_OVERLAY" = "true" ] && echo "${MENU_SETTINGS_6_ON:-🎨 6. Title overlay: ON}" || echo "${MENU_SETTINGS_6_OFF:-🎨 6. Title overlay: OFF}")" \
             7 "${MENU_SETTINGS_7:-🚪 7. Exit}" \
             --width=440 --height=520 --hide-header \
-            "${YAD_BTN_OKC[@]}")
+            "${BTNS_OKC[@]}")
         CHOICE="${CHOICE%%|*}"
         [ $? -ne 0 ] || [ -z "$CHOICE" ] && break
         case "$CHOICE" in
@@ -1504,7 +1563,7 @@ menu_maintenance() {
             2 "${MENU_MAINTENANCE_2:-🧹 2. Limpar galeria}" \
             3 "${MENU_MAINTENANCE_3:-🗑️  3. Remover WayLume}" \
             --width=400 --height=320 --hide-header \
-            "${YAD_BTN_OKC[@]}")
+            "${BTNS_OKC[@]}")
         CHOICE="${CHOICE%%|*}"
         [ $? -ne 0 ] || [ -z "$CHOICE" ] && break
         case "$CHOICE" in
@@ -1595,7 +1654,7 @@ while true; do
         6 "${MENU_ITEM_6:-🔧 6. Maintenance}" \
         7 "${MENU_ITEM_7:-🚪 7. Exit}" \
         --width=480 --height=560 --hide-header \
-        "${YAD_BTN_OKC[@]}")
+        "${BTNS_OKC[@]}")
     CHOICE="${CHOICE%%|*}"   # strip trailing pipe (defensive)
 
     # Exit on window close (X button / Alt+F4) or empty selection
