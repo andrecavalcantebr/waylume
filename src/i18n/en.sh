@@ -131,6 +131,7 @@ MSG_TIMER_RESUMED="▶️ Timer resumed. Automatic wallpaper updates restarted."
 # ── gallery navigation ───────────────────────────────────────────────────────────────────────
 MSG_NAV_APPLIED="📸 %s"
 MSG_NAV_NO_IMAGES="No images in the gallery. Download new images first."
+MSG_NAV_POSITION="📸 Image %s of %s"
 
 # ── fetcher: notify-send messages ─────────────────────────────────────────────
 MSG_FETCH_NO_IMAGES="No images found in the gallery."

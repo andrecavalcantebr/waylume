@@ -129,6 +129,7 @@ MSG_TIMER_RESUMED="▶️ Timer retomado. Atualizações automáticas reiniciada
 # ── navegação na galeria ────────────────────────────────────────────────────────────────────────
 MSG_NAV_APPLIED="📸 %s"
 MSG_NAV_NO_IMAGES="Nenhuma imagem na galeria. Baixe novas imagens primeiro."
+MSG_NAV_POSITION="📸 Imagem %s de %s"
 
 # ── fetcher: mensagens de notify-send ────────────────────────────────────────
 MSG_FETCH_NO_IMAGES="Nenhuma imagem encontrada na galeria."
