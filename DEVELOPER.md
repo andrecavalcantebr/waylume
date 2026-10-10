@@ -8,22 +8,31 @@ Technical reference for contributors and maintainers. Covers architecture, key f
 
 ## File structure
 
-```plaitext
+```text
 waylume/
   src/
-    main.sh          (~793 lines) — installer, GUI menus, gallery navigation
-    fetcher.sh       (~570 lines) — systemd oneshot worker: download, process, apply
-    waylume.svg      (  22 lines) — SVG application icon (embedded at build time)
+    main.sh            (759 lines) — installer, GUI menus, gallery navigation
+    fetcher.sh         (257 lines) — skeleton with ##LIB_GALLERY## ##LIB_WALLPAPER## ##SOURCES##
+    waylume.svg        ( 22 lines) — SVG application icon (embedded at build time)
+    lib/
+      gallery.sh       (155 lines) — state persistence + gallery database CRUD
+      wallpaper.sh     (215 lines) — image pipeline + per-DE wallpaper dispatch
+    sources/
+      bing.sh          ( 29 lines) — fetch_bing()
+      unsplash.sh      ( 41 lines) — fetch_unsplash()
+      apod.sh          ( 50 lines) — fetch_apod()
+      wikimedia.sh     ( 56 lines) — fetch_wikimedia()
     i18n/
-      pt.sh          (~142 lines) — Brazilian Portuguese string bundle
-      en.sh          (~144 lines) — English string bundle
-  build.sh           (  50 lines) — build tool: embeds src/* into waylume.sh via Python 3
-  waylume.sh         (~1671 lines) — GENERATED ARTIFACT — never edit directly
-  test_multi_de.sh   — smoke tests for multi-DE dispatch (mocks; no DE needed)
-  DEVELOPER.md       — this file
-  ROADMAP.md         — version history and future plans
+      pt.sh            (144 lines) — Brazilian Portuguese string bundle
+      en.sh            (146 lines) — English string bundle
+  build.py             ( 88 lines) — ferramenta de build em Python puro; dois passes
+  build.sh             (  3 lines) — shim de compatibilidade: `exec build.py "$@"`
+  waylume.sh           (1870 lines) — GENERATED ARTIFACT — never edit directly
+  test_multi_de.sh     — smoke tests for multi-DE dispatch (mocks; no DE needed)
+  DEVELOPER.md         — this file
+  ROADMAP.md           — version history and future plans
   README.md / README.pt.md / README.en.md — user documentation
-  LICENSE.md         — GPLv3
+  LICENSE.md           — GPLv3
 ```
 
 ### Golden rule
@@ -33,13 +42,13 @@ waylume/
 After any change to `src/`:
 
 ```bash
-./build.sh --install
+./build.py --install
 ```
 
 To validate without installing:
 
 ```bash
-./build.sh && bash -n waylume.sh
+./build.py && bash -n waylume.sh
 ```
 
 To run tests:
@@ -52,18 +61,30 @@ bash test_multi_de.sh
 
 ## Build system
 
-`build.sh` embeds four source files into `waylume.sh` by replacing placeholder strings inside `src/main.sh`. The substitution is done by an embedded Python 3 script.
+`build.py` (pure Python 3) performs **two passes**:
 
-| Placeholder in `src/main.sh` | File embedded |
+**Pass 1 — expand library placeholders inside `src/fetcher.sh`:**
+
+| Placeholder in `src/fetcher.sh` | Content substituted |
 | --- | --- |
-| `##FETCHER_CONTENT##` | `src/fetcher.sh` |
+| `##LIB_GALLERY##` | `src/lib/gallery.sh` |
+| `##LIB_WALLPAPER##` | `src/lib/wallpaper.sh` |
+| `##SOURCES##` | `src/sources/bing.sh` + `unsplash.sh` + `apod.sh` + `wikimedia.sh` (blank-line-separated) |
+
+**Pass 2 — embed expanded fetcher + assets into `src/main.sh`:**
+
+| Placeholder in `src/main.sh` | Content substituted |
+| --- | --- |
+| `##FETCHER_CONTENT##` | expanded fetcher (output of pass 1) |
 | `##ICON_CONTENT##` | `src/waylume.svg` |
 | `##I18N_PT##` | `src/i18n/pt.sh` |
 | `##I18N_EN##` | `src/i18n/en.sh` |
 
-The `##FETCHER_CONTENT##` placeholder lives inside a heredoc in `install_or_update()`. When `waylume --install` runs, fetcher.sh is extracted to `~/.local/bin/waylume-fetch`. The i18n files are extracted the same way to `~/.config/waylume/i18n/`.
+The `##FETCHER_CONTENT##` placeholder lives inside a heredoc in `install_or_update()`. When `waylume --install` runs, the fully expanded fetcher is extracted to `~/.local/bin/waylume-fetch`. The i18n files are extracted the same way to `~/.config/waylume/i18n/`.
 
-**Requirements:** `bash`, `python3`. `shellcheck` is optional but checked if present.
+`build.py` uses `pathlib.Path`, `argparse`, `subprocess`, and `shutil` — no external dependencies beyond the Python standard library. `build.sh` is a 3-line compatibility shim: `exec build.py "$@"`.
+
+**Requirements:** `python3 ≥ 3.9`. `shellcheck` is optional but checked if present.
 
 ---
 
@@ -91,11 +112,31 @@ Writes: waylume.conf            Writes: waylume.state
 | --- | --- | --- |
 | `~/.config/waylume/waylume.conf` | `main.sh` via `save_config` | User settings |
 | `~/.config/waylume/waylume.state` | `fetcher.sh` via `save_state` | Download dates + active gallery path |
+| `~/.config/waylume/waylume.db` | `fetcher.sh` via `_wl_db_*` | Gallery database (TSV; see below) |
 | `~/.cache/waylume/waylume_display.jpg` | `fetcher.sh` via `_wl_make_display_image` | Temp wallpaper with overlay composited |
 | `$DEST_DIR/waylume_YYYYMMDD_HHMMSS.jpg` | `fetcher.sh` | Gallery image (clean, no overlay baked in) |
 | `$DEST_DIR/waylume_YYYYMMDD_HHMMSS.jpg.title` | `fetcher.sh` | Image title text (sidecar) |
 
-Both config files are read via `_wl_read_keyval()` — a whitelist parser that prevents code injection by only assigning explicitly listed variable names.
+All key=value files are read via `_wl_read_keyval()` — a whitelist parser that prevents code injection by only assigning explicitly listed variable names.
+
+### Gallery database (`waylume.db`)
+
+TSV file, one row per image. Never edited by `main.sh` — only by `waylume-fetch`.
+
+```text
+id  filename  title  source  date_iso  status
+```
+
+| Field | Values |
+| --- | --- |
+| `id` | auto-incremented integer |
+| `filename` | basename only (`DEST_DIR`-independent) |
+| `title` | image caption / attribution (may be empty) |
+| `source` | `Bing \| Unsplash \| APOD \| Wikimedia \| Local \| Unknown` |
+| `date_iso` | `YYYY-MM-DD` download date |
+| `status` | `normal \| favorite \| trash` |
+
+All mutations use atomic write (`.tmp` + `mv`). Reads are plain `awk -F'\t'`.
 
 **Config whitelist (`waylume.conf`):**
 `DEST_DIR INTERVAL SOURCES APOD_API_KEY GALLERY_MAX_FILES SHOW_OVERLAY`
@@ -152,7 +193,7 @@ Wrappers over `_zenity` with pre-set button labels from the i18n bundle.
 Shows a zenity progress dialog while running CMD in the background. Animates 0→98% and closes at 100% when the command finishes. Used for slow operations (install, deploy, download).
 
 **`save_config`**
-Writes all six config variables to `waylume.conf`. Must only be called from `menu_settings()` after user confirms — never from inside `set_*` functions directly.
+Writes all six config variables to `waylume.conf`. Must only be called from `menu_settings()` after user confirms — never from inside `set_*` functions directly (exception: `set_overlay_toggle`, which writes immediately without service restart).
 
 **`load_config`**
 Reads `waylume.conf` via `_wl_read_keyval`, applies defaults for any missing key.
@@ -315,29 +356,124 @@ Sets `CURRENT_GALLERY="$TARGET"` (persisted via `save_state`). If `SHOW_OVERLAY=
 
 If overlay is disabled or no sidecar: `DISPLAY_PATH="$TARGET"`.
 
-**`_wl_set_wallpaper(TARGET)`**
-Dispatches to the correct wallpaper command for the current DE:
+---
 
-| `XDG_CURRENT_DESKTOP` | Command |
+## `src/lib/gallery.sh` — state and database
+
+Loaded into `fetcher.sh` via `##LIB_GALLERY##`. Never used directly by `main.sh`.
+
+**`save_state()`**
+Writes all five state keys (`*_LAST_DATE` + `CURRENT_GALLERY`) atomically to `waylume.state`.
+
+**`_wl_db_init()`**
+Calls `_wl_db_migrate()` if `waylume.db` does not yet exist. Called on every fetcher invocation (migration is a no-op on subsequent runs).
+
+**`_wl_db_migrate()`**
+One-shot: scans `DEST_DIR` for existing images and populates `waylume.db` from `.title` sidecars. Skips filenames already present. Extracts the date from the `waylume_YYYYMMDD_HHMMSS.jpg` filename pattern.
+
+**`_wl_db_add(filename, title, source, [date_iso])`**
+Appends a new row to `waylume.db`. Atomic rewrite.
+
+**`_wl_db_count()`**
+Counts non-trash entries.
+
+**`_wl_db_get_by_idx(idx)`**
+Returns the 0-based Nth non-trash row as a full TSV line.
+
+**`_wl_db_idx_of(filename)`**
+Returns the 0-based position of `filename` among non-trash entries, or `-1` if not found.
+
+**`_wl_db_remove_by_id(id)`**
+Deletes the row, the gallery file, and its `.title` sidecar. Atomic rewrite.
+
+**`_wl_db_prune()`**
+Deletes oldest `normal` entries until active count ≤ `GALLERY_MAX_FILES`. Always protects the current `CURRENT_GALLERY` file.
+
+**`prune_gallery()`**
+Backwards-compatible wrapper for `_wl_db_prune`.
+
+---
+
+## `src/lib/wallpaper.sh` — image pipeline and DE dispatch
+
+Loaded into `fetcher.sh` via `##LIB_WALLPAPER##`.
+
+**`validate_image(TARGET)`**
+Uses `file --mime-type` to verify the file is an image. Removes it and exits 1 if not.
+
+**`process_image(TARGET)`**
+Uses `xrandr` to detect screen resolution, then `convert` (ImageMagick) to resize and center-crop. Overwrites the original file in-place. Does **not** bake the overlay.
+
+**`_wl_make_display_image(TARGET)`**
+Sets `CURRENT_GALLERY="$TARGET"` (persisted via `save_state`). If `SHOW_OVERLAY=true` and a `.title` sidecar exists:
+
+- Reads title; truncates to 120 chars; escapes `%` → `%%`; strips C0 control chars (prevents ImageMagick format-string injection)
+- Composites a 52px semi-transparent black bar at the top with brand + title text
+- Writes result to `~/.cache/waylume/waylume_display.jpg`; sets `DISPLAY_PATH`
+
+If overlay is disabled or no sidecar: `DISPLAY_PATH="$TARGET"`.
+
+### DE dispatcher pattern
+
+The `case` block for DE detection appears **exactly once** in `_wl_de_name()`. All set/get logic lives in named per-DE functions. Adding a new DE requires two functions and one pattern in `_wl_de_name`.
+
+**`_wl_de_name()`**
+Maps `XDG_CURRENT_DESKTOP` to a canonical lowercase name: `gnome | mate | cinnamon | kde | xfce | unknown`.
+
+**`_wl_set_<de>(TARGET)` — per-DE set functions:**
+
+| Function | Command |
 | --- | --- |
-| `GNOME`, `ubuntu:GNOME` | `gsettings set org.gnome.desktop.background picture-uri` (+ dark variant) |
-| `MATE` | `gsettings set org.mate.background picture-filename` (plain path, no `file://`) |
-| `X-Cinnamon` | `gsettings set org.cinnamon.desktop.background picture-uri` (+ dark variant) |
-| `KDE` | `plasma-apply-wallpaperimage` |
-| `XFCE` | `xfconf-query` on all `/last-image` properties (auto-detects all monitors) |
-| *(unknown)* | GNOME schema best-effort |
+| `_wl_set_gnome` | `gsettings org.gnome.desktop.background picture-uri` (+ dark variant) |
+| `_wl_set_mate` | `gsettings org.mate.background picture-filename` (plain path, no `file://`) |
+| `_wl_set_cinnamon` | `gsettings org.cinnamon.desktop.background picture-uri` (+ dark variant) |
+| `_wl_set_kde` | `plasma-apply-wallpaperimage` |
+| `_wl_set_xfce` | `xfconf-query` on all `/last-image` properties; fallback to first `xrandr` monitor |
+| `_wl_set_unknown` | GNOME schema best-effort |
 
-**`_wl_get_current_wallpaper`**
-Returns the active wallpaper path from the DE. Returns empty string for KDE (no CLI read-back). When overlay is on, this returns the temp display file path — use `--get-current-gallery` instead for navigation.
+**`_wl_get_<de>()` — per-DE get functions:**
+Each returns a plain filesystem path (no `file://`, no quotes). `_wl_get_kde` and `_wl_get_unknown` return empty string.
+
+**`_wl_set_wallpaper(TARGET)`**
+Public API: `"_wl_set_$(_wl_de_name)" "$1"`
+
+**`_wl_get_current_wallpaper()`**
+Public API: `"_wl_get_$(_wl_de_name)"`
+
+> When overlay is on, returns the temp display file path — use `--get-current-gallery` for navigation.
 
 **`apply_wallpaper(TARGET)`**
-Calls `_wl_make_display_image` → `_wl_set_wallpaper` → `notify-send`.
+Full pipeline: `_wl_make_display_image` → `_wl_set_wallpaper` → `notify-send`.
 
-**`save_state`**
-Writes all five state keys (`*_LAST_DATE` + `CURRENT_GALLERY`) to `waylume.state`.
+---
 
-**`prune_gallery`**
-Deletes oldest gallery files until count ≤ `GALLERY_MAX_FILES`. Uses `CURRENT_GALLERY` (from state) to protect the active image. Also deletes the `.title` sidecar alongside the image.
+## `src/sources/` — download sources
+
+Loaded into `fetcher.sh` via `##SOURCES##` (concatenation of all four files). Each file contains exactly one `fetch_<name>()` function.
+
+### Source function contract
+
+```bash
+fetch_<name>() {
+    local TARGET="$1"   # path to write the downloaded image
+    # Populates globals:
+    IMG_TITLE="..."     # image caption for overlay and db
+    MESSAGE="..."       # text for notify-send
+    # Utilities provided by fetcher.sh preamble:
+    _wl_daily_cap "Label" LABEL_LAST_DATE && return   # rotate local if already ran today
+    _wl_check_timeout $?                               # exit on curl timeout (code 28)
+    apply_random_local "Label"                         # fallback when download fails
+}
+```
+
+| File | Function | API |
+| --- | --- | --- |
+| `bing.sh` | `fetch_bing` | `bing.biturl.top` (unofficial proxy) |
+| `unsplash.sh` | `fetch_unsplash` | `picsum.photos/1920/1080.jpg` + `/id/<ID>/info` |
+| `apod.sh` | `fetch_apod` | `api.nasa.gov/planetary/apod` — retries up to 8 days back for videos |
+| `wikimedia.sh` | `fetch_wikimedia` | `commons.wikimedia.org/w/api.php` — 2-step: template → imageinfo |
+
+The dispatch `case` in `fetcher.sh` MAIN sets `_WL_NEW_DOWNLOAD=true` for the four external sources and calls `_wl_db_add` after a successful download.
 
 ---
 
@@ -356,7 +492,7 @@ The i18n files are plain `KEY="value"` shell files. Values can contain `\n` for 
 yad_info --text="$(printf "${MSG_MY_FEATURE:-Fallback text}" "$value")"
 ```
 
-To add a new language: copy `src/i18n/en.sh` to `src/i18n/XX.sh`, translate all values, add a `##I18N_XX##` placeholder in `src/main.sh`'s `install_or_update()`, and register it in `build.sh`.
+To add a new language: copy `src/i18n/en.sh` to `src/i18n/XX.sh`, translate all values, add a `##I18N_XX##` placeholder in `src/main.sh`'s `install_or_update()`, and register it in `build.py`.
 
 ---
 
@@ -364,19 +500,29 @@ To add a new language: copy `src/i18n/en.sh` to `src/i18n/XX.sh`, translate all 
 
 ### Add a new image source
 
-1. Add `fetch_mysource()` in `src/fetcher.sh` following the source contract above.
+1. Create `src/sources/mysource.sh` with `fetch_mysource()` following the source contract.
 
-2. Add `MYSOURCE_LAST_DATE=""` to the state variables block and to the `_wl_read_keyval` whitelist call.
+2. Register it in `build.py`: add the path to the `SOURCES` list.
 
-3. Add `echo "MYSOURCE_LAST_DATE=\"$MYSOURCE_LAST_DATE\""` to `save_state()`.
+3. Add `MYSOURCE_LAST_DATE=""` to the state variables block in `src/fetcher.sh` and to its `_wl_read_keyval` whitelist call.
 
-4. Add `mysource) fetch_mysource "$TARGET_PATH" ;;` to the dispatch `case` in the main flow.
+4. Add `echo "MYSOURCE_LAST_DATE=\"$MYSOURCE_LAST_DATE\""` to `save_state()` in `src/lib/gallery.sh`.
 
-5. Add `"MySource"` as a checkbox option in `set_image_sources()` in `src/main.sh`.
+5. Add `mysource) fetch_mysource "$TARGET_PATH" ; _WL_NEW_DOWNLOAD=true ;;` to the dispatch `case` in `src/fetcher.sh` MAIN.
 
-6. Add i18n strings `MSG_FETCH_SOURCE_MYSOURCE` in both `src/i18n/en.sh` and `src/i18n/pt.sh`.
+6. Add `"MySource"` as a checkbox option in `set_image_sources()` in `src/main.sh`.
 
-7. Run `./build.sh --install` and add a test case to `test_multi_de.sh`.
+7. Add i18n strings `MSG_FETCH_SOURCE_MYSOURCE` in both `src/i18n/en.sh` and `src/i18n/pt.sh`.
+
+8. Run `./build.py --install` and add a test case to `test_multi_de.sh`.
+
+### Add a new desktop environment
+
+1. Add `_wl_set_<de>(TARGET)` and `_wl_get_<de>()` functions in `src/lib/wallpaper.sh`.
+
+2. Add the `XDG_CURRENT_DESKTOP` pattern to `_wl_de_name()` mapping to the canonical name.
+
+3. Add a test scenario to `test_multi_de.sh`.
 
 ### Add a new user setting
 
@@ -408,14 +554,16 @@ yad_info --text="$(printf "${MSG_MY_STRING:-Text with %s}" "$variable")"
 
 ## Testing
 
-`test_multi_de.sh` mocks `gsettings`, `xfconf-query`, and `plasma-apply-wallpaperimage`, then sources `fetcher.sh` to verify multi-DE dispatch for each desktop environment.
+`test_multi_de.sh` mocks `gsettings`, `xfconf-query`, and `plasma-apply-wallpaperimage`, then runs the **assembled fetcher** (extracted from `waylume.sh` via `awk`) to verify multi-DE dispatch for each desktop environment.
+
+> The test uses the assembled fetcher — not `src/fetcher.sh` directly — because `src/fetcher.sh` is now a skeleton with bare placeholders. Always run `./build.py` before running tests.
 
 ```bash
-bash test_multi_de.sh    # expected: 29/29 tests passed
+./build.py && bash test_multi_de.sh   # expected: 29/29 tests passed
 ```
 
 To validate the build artifact only:
 
 ```bash
-./build.sh && bash -n waylume.sh && echo "OK"
+./build.py && bash -n waylume.sh && echo "OK"
 ```

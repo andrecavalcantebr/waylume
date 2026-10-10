@@ -16,8 +16,16 @@ export LOG="$MOCK_BIN/calls.log"
 FAKE_IMG=$(mktemp /tmp/wl_test_XXXXXX.jpg)
 touch "$FAKE_IMG"   # existence is enough; --set-wallpaper does not validate MIME
 
-cleanup() { rm -rf "$MOCK_BIN" "$FAKE_IMG"; }
+cleanup() { rm -rf "$MOCK_BIN" "$FAKE_IMG" "$ASSEMBLED_FETCHER"; }
 trap cleanup EXIT
+
+# Extract the assembled fetcher from waylume.sh (lines between the two EOF markers
+# that bracket ##FETCHER_CONTENT##, i.e. lines 220..988 in the built file).
+# This is more robust than hardcoding line numbers: we locate the heredoc boundaries.
+ASSEMBLED_FETCHER=$(mktemp /tmp/wl_fetcher_XXXXXX.sh)
+awk "/^    cat << 'EOF' > \"\\\$FETCHER_SCRIPT\"/{found=1; next} found && /^EOF$/{exit} found" \
+    waylume.sh > "$ASSEMBLED_FETCHER"
+chmod +x "$ASSEMBLED_FETCHER"
 
 # ── Test helpers ──────────────────────────────────────────────────────────────
 pass() { echo "  ✅ $1"; (( PASS++ )); }
@@ -93,7 +101,7 @@ run() {
     local DE="$1"; shift
     > "$LOG"
     XDG_CURRENT_DESKTOP="$DE" PATH="$MOCK_BIN:$PATH" \
-        bash src/fetcher.sh "$@" 2>/dev/null
+        bash "$ASSEMBLED_FETCHER" "$@" 2>/dev/null
 }
 
 # ── Test suite ────────────────────────────────────────────────────────────────

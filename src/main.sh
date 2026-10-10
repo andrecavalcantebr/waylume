@@ -1,10 +1,10 @@
 #!/bin/bash
 # ====================================================
 # WayLume - Minimalist Wayland Wallpaper Manager
-# Version: 1.8.0
+# Version: 2.0.0
 # ====================================================
 
-WL_VERSION="1.8.0"
+WL_VERSION="2.0.0"
 
 # --- Paths and global variables ---
 CONFIG_DIR="$HOME/.config/waylume"
@@ -46,7 +46,7 @@ if [[ "${LANG:-}" != *.* ]]; then
 fi
 # Fallback defaults when i18n files not yet installed (first --install run)
 : "${BTN_CLOSE:=Close}" "${BTN_NO:=No}" "${BTN_YES:=Yes}" "${BTN_OK:=OK}"
-: "${TITLE_MENU:=WayLume - Menu}" "${TITLE_INTERVAL:=Update Interval}"
+: "${TITLE_MENU:=WayLume v${WL_VERSION} - Menu}" "${TITLE_INTERVAL:=Update Interval}"
 : "${TITLE_SOURCES:=Image Sources}" "${TITLE_APOD_KEY:=WayLume - NASA API Key}"
 : "${TITLE_GALLERY_PICK:=Choose Gallery Folder}"
 : "${TITLE_UNINSTALL_CONFIRM:=Warning}" "${TITLE_GALLERY_CLEAN:=WayLume - Clean Gallery}"
@@ -580,56 +580,19 @@ fetch_and_apply_wallpaper() {
     fi
 }
 
-# Navigate the local gallery circularly (direction: next | prev | random)
-# Overlay is applied at display time by waylume-fetch --set-wallpaper.
+# Navigate the local gallery circularly (direction: next | prev | random).
+# Delegates entirely to waylume-fetch --nav, which owns the db and overlay logic.
+# Prints the position indicator ("Image N of M") received from the fetcher.
 _gallery_navigate() {
     local DIRECTION="$1"
-    local FILES=()
-    while IFS= read -r -d '' f; do
-        FILES+=("$f")
-    done < <(find "$DEST_DIR" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.png" \) -print0 | sort -z)
-
-    local COUNT=${#FILES[@]}
-    if [ "$COUNT" -eq 0 ]; then
-        notify-send "WayLume" "${MSG_NAV_NO_IMAGES:-No images in the gallery. Download new images first.}"
-        return
+    local RESULT
+    RESULT=$("$FETCHER_SCRIPT" --nav "$DIRECTION" 2>/dev/null)
+    local RC=$?
+    if [ "$RC" -ne 0 ]; then
+        # Fetcher printed its own notify-send error; nothing more to do.
+        return 1
     fi
-
-    local IDX=0
-    if [ "$DIRECTION" = "random" ]; then
-        IDX=$(( RANDOM % COUNT ))
-    else
-        # Find the currently displayed gallery file in the sorted list.
-        # --get-current-gallery returns the original gallery file path even when
-        # the DE's wallpaper points to the temporary overlay display file.
-        local CURRENT
-        CURRENT=$(waylume-fetch --get-current-gallery 2>/dev/null || \
-            gsettings get org.gnome.desktop.background picture-uri 2>/dev/null \
-            | tr -d "'" | sed 's|file://||')
-        local FOUND=false
-        for i in "${!FILES[@]}"; do
-            if [ "${FILES[$i]}" = "$CURRENT" ]; then
-                IDX=$i
-                FOUND=true
-                break
-            fi
-        done
-        # If current is not from our gallery, start from beginning / end
-        if ! $FOUND; then
-            [ "$DIRECTION" = "prev" ] && IDX=$(( COUNT - 1 )) || IDX=0
-        elif [ "$DIRECTION" = "next" ]; then
-            IDX=$(( (IDX + 1) % COUNT ))
-        else
-            IDX=$(( (IDX - 1 + COUNT) % COUNT ))
-        fi
-    fi
-
-    local TARGET="${FILES[$IDX]}"
-    waylume-fetch --set-wallpaper "$TARGET" 2>/dev/null || {
-        gsettings set org.gnome.desktop.background picture-uri      "file://$TARGET"
-        gsettings set org.gnome.desktop.background picture-uri-dark "file://$TARGET"
-    }
-    notify-send "WayLume" "$(printf "${MSG_NAV_APPLIED:-📸 %s}" "$(basename "$TARGET")")"
+    [ -n "$RESULT" ] && notify-send "WayLume" "$RESULT"
 }
 
 go_next_image()   { _gallery_navigate next;   }

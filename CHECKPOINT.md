@@ -1,4 +1,4 @@
-# CHECKPOINT — Session 2026-05-20
+# CHECKPOINT — Session 2026-06-03
 
 > Read this file at the start of each session to recover development context.
 
@@ -8,15 +8,16 @@
 
 - **Repo:** github.com/andrecavalcantebr/waylume
 - **Branch:** main
-- **Version:** `1.8.0` — ⛔ SÉRIE 1.x ENCERRADA — não commitada
+- **Last tag:** `v2.0.0` — série 2.x foundation
+- **Working state:** v2.0.0 commitado — série 2.x foundation completa
 - **Git log:**
 
   ```text
-  (pendente)   fix: fresh install + atomic writes + BTNS rename + set_gallery_dir (v1.8.0)
-  70ee310  feat(zenity-migration): migrate GUI from yad to zenity 4.x (v1.7.0)
-  7b2962c  feat: timer pause/resume and local gallery source (v1.6.0)
-  6061b85  feat: multi-DE support — GNOME, MATE, Cinnamon, KDE, XFCE (v1.5.0)
-  653b2d4  feat: overlay toggle, multi-DE roadmap, and docs update (v1.4.0)
+  (HEAD -> release/v2.0.0)  feat: série 2.x — gallery db, modularisation, dispatcher, build.py (v2.0.0)
+  514a9d9 (tag: v1.8.0, origin/main)  fix: fresh install + atomic writes + BTNS rename + set_gallery_dir (v1.8.0)
+  70ee310 (tag: v1.7.0)  feat(zenity-migration): migrate GUI from yad to zenity 4.x (v1.7.0)
+  7b2962c (tag: v1.6.0)  feat: timer pause/resume and local gallery source (v1.6.0)
+  6061b85 (tag: v1.5.0)  feat: multi-DE support — GNOME, MATE, Cinnamon, KDE, XFCE (v1.5.0)
   ```
 
 ---
@@ -26,23 +27,33 @@
 ```text
 waylume/
   src/
-    main.sh         (~796 lines) — installer and GUI; placeholders ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
-    fetcher.sh      (~570 lines) — systemd worker (waylume-fetch); multi-DE helpers; standalone-testable with: bash src/fetcher.sh
-    waylume.svg     (  22 lines) — application SVG icon
+    main.sh            (759 lines) — installer, GUI menus, gallery navigation
+                                     placeholders: ##FETCHER_CONTENT## ##ICON_CONTENT## ##I18N_PT## ##I18N_EN##
+    fetcher.sh         (257 lines) — skeleton; placeholders: ##LIB_GALLERY## ##LIB_WALLPAPER## ##SOURCES##
+    waylume.svg        ( 22 lines) — application SVG icon
+    lib/
+      gallery.sh       (155 lines) — state persistence + gallery database CRUD (waylume.db)
+      wallpaper.sh     (215 lines) — image pipeline + per-DE wallpaper dispatch
+    sources/
+      bing.sh          ( 29 lines) — fetch_bing()
+      unsplash.sh      ( 41 lines) — fetch_unsplash()
+      apod.sh          ( 50 lines) — fetch_apod()
+      wikimedia.sh     ( 56 lines) — fetch_wikimedia()
     i18n/
-      pt.sh         (~142 lines) — all strings in Brazilian Portuguese
-      en.sh         (~144 lines) — all strings in English
-  build.sh          (  50 lines) — combines the above files → waylume.sh; supports --install flag
-  waylume.sh        (~1674 lines) — GENERATED ARTIFACT; do not edit directly
-  test_multi_de.sh  — mock-based smoke tests for multi-DE dispatch (29 assertions; no DE installation required)
-  linuxtoys-pr/     — material for the LinuxToys PR (see below)
-  DEVELOPER.md      — technical reference for contributors
-  ROADMAP.md        — version history, competitive analysis, and future plans
-  README.md         — language hub (links → README.pt.md and README.en.md)
-  README.pt.md      — user documentation in Portuguese
-  README.en.md      — user documentation in English
-  LICENSE.md        — GPLv3 (authoritative English text)
-  CHECKPOINT.md     — this file
+      pt.sh            (144 lines) — Brazilian Portuguese string bundle
+      en.sh            (146 lines) — English string bundle
+  build.py             ( 88 lines) — ferramenta de build em Python puro; dois passes
+  build.sh             (  3 lines) — shim de compatibilidade (delega para build.py)
+  waylume.sh           (1870 lines) — GENERATED ARTIFACT; never edit directly
+  test_multi_de.sh     — mock-based smoke tests for multi-DE dispatch (29 assertions)
+  linuxtoys-pr/        — material for the LinuxToys PR
+  DEVELOPER.md         — technical reference for contributors
+  ROADMAP.md           — version history, competitive analysis, and future plans
+  README.md            — language hub (links → README.pt.md and README.en.md)
+  README.pt.md         — user documentation in Portuguese
+  README.en.md         — user documentation in English
+  LICENSE.md           — GPLv3 (authoritative English text)
+  CHECKPOINT.md        — this file
 ```
 
 ### Golden rule
@@ -50,25 +61,36 @@ waylume/
 **Always edit in `src/`, never in `waylume.sh` directly.**
 
 ```bash
-./build.sh --install   # build + install
-./build.sh && bash -n waylume.sh   # validate only
-bash test_multi_de.sh  # run tests (expected: 29/29)
+./build.py --install          # build + install
+./build.py && bash -n waylume.sh   # validate only
+bash test_multi_de.sh         # run tests (expected: 29/29)
+# build.sh também funciona (shim)
 ```
 
 ---
 
-## build.sh architecture
+## build.py — two-pass substitution
 
-`build.sh` uses Python 3 to substitute four placeholders in `src/main.sh`:
+`build.py` (pure Python 3) performs two passes:
 
-| Placeholder | Replaced by |
+**Pass 1 — expand library placeholders inside `src/fetcher.sh`:**
+
+| Placeholder in `src/fetcher.sh` | File embedded |
 | --- | --- |
-| `##FETCHER_CONTENT##` | content of `src/fetcher.sh` |
-| `##ICON_CONTENT##` | content of `src/waylume.svg` |
-| `##I18N_PT##` | content of `src/i18n/pt.sh` |
-| `##I18N_EN##` | content of `src/i18n/en.sh` |
+| `##LIB_GALLERY##` | `src/lib/gallery.sh` |
+| `##LIB_WALLPAPER##` | `src/lib/wallpaper.sh` |
+| `##SOURCES##` | `src/sources/bing.sh` + `unsplash.sh` + `apod.sh` + `wikimedia.sh` (concatenated) |
 
-The i18n placeholders live inside heredocs in `install_or_update`. Python substitutes them before runtime; `waylume.sh` is self-contained (~1658 lines, single file for distribution).
+**Pass 2 — embed expanded fetcher + assets into `src/main.sh`:**
+
+| Placeholder in `src/main.sh` | Content |
+| --- | --- |
+| `##FETCHER_CONTENT##` | expanded fetcher (output of pass 1) |
+| `##ICON_CONTENT##` | `src/waylume.svg` |
+| `##I18N_PT##` | `src/i18n/pt.sh` |
+| `##I18N_EN##` | `src/i18n/en.sh` |
+
+The `##FETCHER_CONTENT##` placeholder lives inside a heredoc in `install_or_update()`. At `--install` time the fully expanded fetcher is extracted to `~/.local/bin/waylume-fetch`.
 
 ---
 
@@ -79,7 +101,7 @@ The i18n placeholders live inside heredocs in `install_or_update`. Python substi
 - Language detection: `$LANG` → strip `.UTF-8` → strip `_BR`/`_US` → lowercase → source `{lang}.sh`; fallback to `en.sh`
 - `LANG` injected into systemd via `Environment="LANG=${LANG}"` in the `.service` file (set at deploy time)
 - Inline fallbacks via `${VAR:=value}` for first-run before `--install`
-- To add a language: `cp src/i18n/en.sh src/i18n/XX.sh` → translate → add placeholder in `install_or_update` → update `build.sh`
+- To add a language: `cp src/i18n/en.sh src/i18n/XX.sh` → translate → add placeholder in `install_or_update` → register in `build.py`
 
 ---
 
@@ -170,6 +192,7 @@ Header shows: gallery folder, interval, overlay state (ON/OFF), timer state (act
 | 2026-05-20 | `set_gallery_dir` — diálogo de seleção de pasta nunca abria; `zenity --file-selection --directory` não suporta `--ok-label`/`--cancel-label` → exit 255 silencioso | Removido `"${YAD_BTN_OKC[@]}"` da chamada; file chooser usa botões nativos |
   | 2026-05-20 | `install_or_update` (fresh install) — `deploy_services` nunca chamado no branch `IS_UPDATE=false` → fetcher script e timer nunca gerados na 1ª instalação | Adicionado `load_config; deploy_services` ao branch `else` |
   | 2026-05-20 | `save_config` / `save_state` — escrita não-atômica: arquivo truncado antes de completar → crash entre truncate e write → config/state zerado; usuário perde `DEST_DIR` e datas | Escrita via `.tmp` + `mv` atômico em ambas as funções |
+
 ---
 
 ## Default configuration
@@ -193,7 +216,7 @@ SHOW_OVERLAY="true"
 - **PR:** <https://github.com/psygreg/linuxtoys/pull/399> (open, awaiting review)
 - **Fork:** <https://github.com/andrecavalcantebr/linuxtoys> → branch `feat/add-waylume`
 - **Files added:** `p3/scripts/utils/waylume.sh` (nocontainer), `waylume.svg`, `p3/libs/lang/{en,pt}.json` (`waylume_desc` key)
-- **Auto-update:** LinuxToys script points to `raw.githubusercontent.com/andrecavalcantebr/waylume/main/waylume.sh` — every `build.sh + git push` updates what LinuxToys installs
+- **Auto-update:** LinuxToys script points to `raw.githubusercontent.com/andrecavalcantebr/waylume/main/waylume.sh` — every `./build.py + git push` updates what LinuxToys installs
 
 ---
 
@@ -218,7 +241,7 @@ SHOW_OVERLAY="true"
 > A série 1.x está congelada em v1.8.0. Não serão adicionadas features nem corrigidos os itens abaixo. Eles serão resolvidos na arquitetura 2.x.
 
 | ID | Componente | Descrição | Impacto |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | F2 | `fetcher.sh` | `process_image` roda sobre rotações locais da galeria — re-encoda JPEG in-place a cada hora | Degradação acumulada com uso intenso da source "Local" |
 | S1 | `main.sh` | `set_gallery_dir` não valida o caminho: `prune_gallery` pode deletar fotos pessoais se o usuário escolher um dir que já tem imagens `.jpg`/`.png` | **Não use diretório com fotos pessoais como galeria** |
 | S2 | `main.sh` | FIFO de progresso criado via `mktemp -u /tmp/...` — TOCTOU race entre geração do nome e `mkfifo` | Improvável em prática; sem exploração conhecida |
@@ -226,22 +249,16 @@ SHOW_OVERLAY="true"
 
 ---
 
-## Next session priorities — início da série 2.x
+## Next session priorities — série 2.x (pós v2.0.0)
 
 > See also: [ROADMAP.md](ROADMAP.md) — strategic analysis, competitive comparison, and full roadmap.
 
-**Objetivo do v2.0:** mesma paridade de features do v1.8, sobre arquitetura nova. Sem features novas até o 2.0 estar estável.
+**Status:** v2.0.0 estável. Foundation da série 2.x completa. Próximas entregas são features incrementais.
 
-1. **Arquitetura `.waylume.db`** — fundação da série 2.x
-   - Schema TSV: `id \t filename \t title \t source \t date_iso`
-   - Funções: `db_add`, `db_list`, `db_remove_by_id`, `db_get_by_index`
-   - Escrita atômica: `.waylume.db.tmp` + `mv`
-   - Migração one-shot de galerias existentes (lê `*.title` sidecars → popula db)
-2. **Modularização** — `src/sources/` (bing.sh, unsplash.sh, apod.sh, wikimedia.sh, local.sh); `src/lib/` (config.sh, gallery.sh, ui.sh)
-3. **`prune_gallery` via db** — apaga apenas arquivos registrados; resolve S1 definitivamente
-4. **`_gallery_navigate` via db** — índice real; resolve Q1 e habilita posição "Imagem 3 de 47"
-5. **Favoritos/lixo** — campo `status` no db (`normal`/`favorite`/`trash`); trivial com fundação certa
-6. **Validação de caminho** — `set_gallery_dir` aceita apenas subdirs de `$HOME`; resolve S1 como medida adicional
+1. **Favoritos/lixo UI** — campo `status` no db já existe (`normal|favorite|trash`); falta GUI: item no menu de contexto da navegação (Favoritar / Enviar para lixo / Ver favoritos)
+2. **Validar caminho em `set_gallery_dir`** — aceitar apenas subdirs de `$HOME`; resolve S1 definitivamente
+3. **APOD hdurl opt-in** — opciónal 4K para HiDPI em Settings
+4. **Wallhaven como source** — API pública, boa qualidade, sem proxy informal
 
 ---
 
@@ -257,10 +274,10 @@ SHOW_OVERLAY="true"
 | `CURRENT_GALLERY` key in `waylume.state` (not a separate file) | Consistent with existing state architecture; no new file proliferation; `_wl_read_keyval` whitelist already in place |
 | `_wl_read_keyval()` whitelist parser (no `eval`, no `source`) | Prevents arbitrary code execution if conf/state files are tampered |
 | `case` dispatch for sources (not dynamic function name) | `"fetch_${SELECTED_SOURCE,,}"` would resolve to arbitrary function names; `case` limits to 4 known values |
-| `src/main.sh` not split yet | Global-state coupling manageable at ~780 lines; split into `src/lib/` warranted at ~900+ lines or first external contributor |
-| `src/fetcher.sh` not split into `src/sources/` yet | 4 sources, 1 maintainer; split warranted at 5+ sources or when contributors ask "where is source X?" |
+| `src/main.sh` modularisation deferred | Global-state coupling manageable at current size; split warranted at 900+ lines or first external contributor |
+| `src/fetcher.sh` modularised into `src/lib/` + `src/sources/` | Done in v2.0.0; skeleton + two-pass build; 4 sources isolated |
 | i18n via `.sh` files (not gettext) | No external dependencies; compatible with single distributed file |
 | `SHOW_OVERLAY` default `true` | Overlay agrega contexto (fonte, título); usuários que preferem imagem limpa desativam via Settings |
 | APOD uses `url` (960px) | `hdurl` (4K) caused 30s+ downloads with no perceptible visual gain on a wallpaper |
 | XFCE uses `xfconf-query` property enumeration | Enumerating existing `last-image` properties solves multi-monitor automatically; no monitor name guessing |
-| `build.sh` (bash + inline Python) as build tool | Works; evolve to `Makefile + tools/assemble.py` when modularising |
+| `build.py` (pure Python) as build tool | Replaces `build.sh`; no embedded Python in bash; `build.sh` kept as 3-line shim |

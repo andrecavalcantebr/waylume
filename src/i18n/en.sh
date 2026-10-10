@@ -83,8 +83,8 @@ MSG_INSTALL_PROMPT="WayLume is not installed on this system.\nDo you want to ins
 MSG_PIN_FAVORITES="Pin WayLume to the Dash/taskbar for quick access?"
 
 # ── main menu ─────────────────────────────────────────────────────────────────
-TITLE_MENU="WayLume - Menu"
-MSG_MENU_HEADER="Wallpaper Manager\nCurrent Gallery: %s\nUpdate Interval: %s\nTitle overlay: %s\nTimer: %s"
+TITLE_MENU="WayLume v${WL_VERSION} - Menu"
+MSG_MENU_HEADER="WayLume v${WL_VERSION}\nWallpaper Manager\nCurrent Gallery: %s\nUpdate Interval: %s\nTitle overlay: %s\nTimer: %s"
 LABEL_OVERLAY_ON="on"
 LABEL_OVERLAY_OFF="off"
 LABEL_TIMER_ON="active"
@@ -131,10 +131,12 @@ MSG_TIMER_RESUMED="▶️ Timer resumed. Automatic wallpaper updates restarted."
 # ── gallery navigation ───────────────────────────────────────────────────────────────────────
 MSG_NAV_APPLIED="📸 %s"
 MSG_NAV_NO_IMAGES="No images in the gallery. Download new images first."
+MSG_NAV_POSITION="📸 Image %s of %s"
 
 # ── fetcher: notify-send messages ─────────────────────────────────────────────
 MSG_FETCH_NO_IMAGES="No images found in the gallery."
 MSG_FETCH_APOD_ERROR="APOD API: %s\nUsing local gallery.\nTip: register a free API key at api.nasa.gov"
+MSG_FETCH_APOD_UPSTREAM="NASA APOD upstream issue: the API returned the generic NASA logo instead of the daily image."
 MSG_FETCH_INVALID_MIME="⚠️ Invalid download ignored (%s). Please try again."
 MSG_FETCH_LOCAL="🔄 Local gallery (%s already downloaded today)"
 MSG_FETCH_SOURCE_BING="New wallpaper downloaded via Bing"

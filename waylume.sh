@@ -1,10 +1,10 @@
 #!/bin/bash
 # ====================================================
 # WayLume - Minimalist Wayland Wallpaper Manager
-# Version: 1.8.0
+# Version: 2.0.0
 # ====================================================
 
-WL_VERSION="1.8.0"
+WL_VERSION="2.0.0"
 
 # --- Paths and global variables ---
 CONFIG_DIR="$HOME/.config/waylume"
@@ -46,7 +46,7 @@ if [[ "${LANG:-}" != *.* ]]; then
 fi
 # Fallback defaults when i18n files not yet installed (first --install run)
 : "${BTN_CLOSE:=Close}" "${BTN_NO:=No}" "${BTN_YES:=Yes}" "${BTN_OK:=OK}"
-: "${TITLE_MENU:=WayLume - Menu}" "${TITLE_INTERVAL:=Update Interval}"
+: "${TITLE_MENU:=WayLume v${WL_VERSION} - Menu}" "${TITLE_INTERVAL:=Update Interval}"
 : "${TITLE_SOURCES:=Image Sources}" "${TITLE_APOD_KEY:=WayLume - NASA API Key}"
 : "${TITLE_GALLERY_PICK:=Choose Gallery Folder}"
 : "${TITLE_UNINSTALL_CONFIRM:=Warning}" "${TITLE_GALLERY_CLEAN:=WayLume - Clean Gallery}"
@@ -276,6 +276,7 @@ WL_MKT=$(printf '%s' "${LANG:-en_US}" | grep -oP '^[a-z]{2}_[A-Z]{2}' | tr '_' '
 WL_MKT="${WL_MKT:-en-US}"
 
 STATE_FILE="$HOME/.config/waylume/waylume.state"
+DB_FILE="$HOME/.config/waylume/waylume.db"
 TODAY=$(date +%Y-%m-%d)
 
 # Read persisted last-download dates per source
@@ -296,10 +297,18 @@ MESSAGE=""
 
 # Rotate a random image from the local gallery (no download).
 # Sets TARGET_PATH and MESSAGE; exits if gallery is empty.
+# Uses the db when available; falls back to find for pre-db installs.
 apply_random_local() {
     local LABEL="$1"
-    TARGET_PATH=$(find "$DEST_DIR" -type f \( -iname "*.jpg" -o -iname "*.png" \) | shuf -n 1)
-    if [ -z "$TARGET_PATH" ]; then
+    local COUNT; COUNT=$(_wl_db_count 2>/dev/null || echo 0)
+    if (( COUNT > 0 )); then
+        local IDX=$(( RANDOM % COUNT ))
+        local ROW; ROW=$(_wl_db_get_by_idx "$IDX")
+        TARGET_PATH="$DEST_DIR/$(printf '%s' "$ROW" | cut -f2)"
+    else
+        TARGET_PATH=$(find "$DEST_DIR" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.png" \) | shuf -n 1)
+    fi
+    if [ -z "$TARGET_PATH" ] || [ ! -f "$TARGET_PATH" ]; then
         notify-send "WayLume" "${MSG_FETCH_NO_IMAGES:-No images found in the gallery.}"
         exit 0   # handled — timer will retry later
     fi
@@ -324,7 +333,12 @@ _wl_check_timeout() {
     exit 1   # signal failure to the caller (run_with_progress / systemd)
 }
 
-# Persist updated download dates to state file.
+# ============================================================
+# STATE
+# Depends on: STATE_FILE (set in fetcher.sh preamble)
+# ============================================================
+
+# Persist updated download dates and current gallery file to waylume.state.
 save_state() {
     {
         echo "APOD_LAST_DATE=\"$APOD_LAST_DATE\""
@@ -335,200 +349,149 @@ save_state() {
     } > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
 }
 
-# Remove oldest gallery files when count exceeds GALLERY_MAX_FILES.
-# GALLERY_MAX_FILES=0 disables pruning. Files are sorted chronologically
-# by filename (waylume_YYYYMMDD_HHMMSS.jpg) so the oldest are always removed first.
-# The currently active wallpaper is never deleted, even if it is the oldest file.
-prune_gallery() {
-    local MAX="${GALLERY_MAX_FILES:-60}"
-    { [ "$MAX" -gt 0 ] 2>/dev/null; } || return  # 0 or non-numeric = disabled
-    local -a FILES
-    mapfile -d '' FILES < <(
-        find "$DEST_DIR" -type f \( -iname "*.jpg" -o -iname "*.png" \) -print0 | sort -z
-    )
-    local COUNT="${#FILES[@]}"
+# ============================================================
+# GALLERY DATABASE (waylume.db — TSV)
+# ============================================================
+# Schema: id TAB filename TAB title TAB source TAB date_iso TAB status
+# - id       : auto-incremented integer
+# - filename : basename only (DEST_DIR may change)
+# - title    : image caption / attribution
+# - source   : Bing | Unsplash | APOD | Wikimedia | Local | Unknown
+# - date_iso : YYYY-MM-DD (download date)
+# - status   : normal | favorite | trash
+# All mutations use atomic write (.tmp + mv). Reads are plain awk.
+# Depends on: DB_FILE, DEST_DIR, TODAY (set in fetcher.sh preamble)
+
+# One-shot migration: scan DEST_DIR for existing images and populate the db
+# from .title sidecars. Safe to call on an already-populated db — skips
+# filenames already present. Creates DB_FILE if it doesn't exist.
+_wl_db_migrate() {
+    local f fname title date_iso max_id=0 next_id added=0
+    local fname_date
+
+    # Find the current max id and build a lookup of filenames already in db.
+    declare -A _existing=()
+    if [ -f "$DB_FILE" ]; then
+        while IFS=$'\t' read -r _id _fname _rest; do
+            (( _id > max_id )) && max_id=$_id
+            _existing["$_fname"]=1
+        done < "$DB_FILE"
+    fi
+    next_id=$(( max_id + 1 ))
+
+    while IFS= read -r -d '' f; do
+        fname=$(basename "$f")
+        [ "${_existing[$fname]+x}" ] && continue   # already in db
+
+        title=""
+        [ -f "${f}.title" ] && title=$(< "${f}.title")
+
+        # Extract date from waylume_YYYYMMDD_HHMMSS.jpg; fall back to today.
+        fname_date=$(printf '%s' "$fname" | grep -oP '(?<=waylume_)\d{8}' | head -1)
+        if [ -n "$fname_date" ]; then
+            date_iso="${fname_date:0:4}-${fname_date:4:2}-${fname_date:6:2}"
+        else
+            date_iso="$TODAY"
+        fi
+
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$next_id" "$fname" "$title" "Unknown" "$date_iso" "normal" \
+            >> "$DB_FILE"
+        (( next_id++ ))
+        (( added++ ))
+    done < <(find "$DEST_DIR" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.png" \) -print0 | sort -z)
+
+    [ "$added" -gt 0 ] && printf 'WayLume: migrated %s image(s) to waylume.db\n' "$added" >&2
+    return 0
+}
+
+# Initialise db: run one-shot migration if the db file doesn't exist yet.
+_wl_db_init() {
+    [ -f "$DB_FILE" ] && return 0
+    _wl_db_migrate
+}
+
+# Add a new image entry to the db (atomic rewrite).
+# Usage: _wl_db_add filename title source [date_iso]
+_wl_db_add() {
+    local filename="$1" title="$2" source="$3"
+    local date_iso="${4:-$TODAY}"
+    local max_id=0
+    if [ -f "$DB_FILE" ]; then
+        max_id=$(awk -F'\t' '{if($1+0>max) max=$1+0} END{print max+0}' "$DB_FILE")
+    fi
+    local id=$(( max_id + 1 ))
+    {
+        cat "$DB_FILE" 2>/dev/null
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$id" "$filename" "$title" "$source" "$date_iso" "normal"
+    } > "${DB_FILE}.tmp" && mv "${DB_FILE}.tmp" "$DB_FILE"
+}
+
+# Count active (non-trash) entries.
+_wl_db_count() {
+    [ -f "$DB_FILE" ] || { echo 0; return; }
+    awk -F'\t' '$6 != "trash" {n++} END{print n+0}' "$DB_FILE"
+}
+
+# Return the 0-based Nth active (non-trash) row (full TSV line).
+_wl_db_get_by_idx() {
+    local idx="$1"
+    [ -f "$DB_FILE" ] || return 1
+    awk -F'\t' -v idx="$idx" '$6 != "trash" {if (n==idx){print; exit} n++}' "$DB_FILE"
+}
+
+# Return the 0-based index of filename among active entries (-1 if not found).
+_wl_db_idx_of() {
+    local filename="$1"
+    [ -f "$DB_FILE" ] || { echo -1; return; }
+    awk -F'\t' -v f="$filename" 'BEGIN{idx=-1} $6 != "trash" {
+        if ($2 == f) {idx=n; exit} n++
+    } END{print idx}' "$DB_FILE"
+}
+
+# Remove a row by id; also deletes the image file and its .title sidecar.
+_wl_db_remove_by_id() {
+    local id="$1"
+    [ -f "$DB_FILE" ] || return
+    local fname
+    fname=$(awk -F'\t' -v id="$id" '$1 == id {print $2; exit}' "$DB_FILE")
+    [ -n "$fname" ] && rm -f -- "$DEST_DIR/$fname" "$DEST_DIR/${fname}.title"
+    awk -F'\t' -v id="$id" 'BEGIN{OFS="\t"} $1 != id' "$DB_FILE" \
+        > "${DB_FILE}.tmp" && mv "${DB_FILE}.tmp" "$DB_FILE"
+}
+
+# Remove oldest normal entries when active count exceeds MAX.
+# The currently active gallery file is never deleted.
+_wl_db_prune() {
+    local MAX="${1:-${GALLERY_MAX_FILES:-60}}"
+    { [ "$MAX" -gt 0 ] 2>/dev/null; } || return
+    [ -f "$DB_FILE" ] || return
+
+    local COUNT; COUNT=$(_wl_db_count)
     (( COUNT > MAX )) || return 0
 
-    # Use the tracked gallery file rather than the DE's wallpaper path:
-    # when overlay is on, the DE stores the temp display file, not the gallery file.
-    local ACTIVE
-    ACTIVE="${CURRENT_GALLERY:-$(_wl_get_current_wallpaper)}"
-
     local TO_DELETE=$(( COUNT - MAX ))
-    local f deleted=0
-    for f in "${FILES[@]}"; do
+    local ACTIVE_BASE; ACTIVE_BASE=$(basename "${CURRENT_GALLERY:-}")
+    local deleted=0
+    local _id _fname _rest _status
+
+    while IFS=$'\t' read -r _id _fname _rest; do
+        _status=$(printf '%s' "$_rest" | awk -F'\t' '{print $NF}')
+        [ "$_status" = "trash" ] && continue
         (( deleted >= TO_DELETE )) && break
-        # Skip the active wallpaper — deleting it would cause a black screen on next change.
-        [[ "$f" == "$ACTIVE" ]] && continue
-        rm -f -- "$f" "${f}.title"
+        [ "$_fname" = "$ACTIVE_BASE" ] && continue
+        _wl_db_remove_by_id "$_id"
         (( deleted++ ))
-    done
+    done < "$DB_FILE"
 }
 
-# ============================================================
-# SOURCE FUNCTIONS
-# Each function receives TARGET_PATH as $1 and is responsible
-# for populating IMG_TITLE and MESSAGE (global), and writing
-# the image file to TARGET_PATH on success.
-# ============================================================
-
-fetch_bing() {
-    local TARGET="$1"
-
-    # Bing has one image per day — rotate from gallery if already downloaded today.
-    _wl_daily_cap "Bing" BING_LAST_DATE && return
-
-    local JSON URL
-    JSON=$(curl --connect-timeout 8 --max-time 15 -sL \
-        "https://bing.biturl.top/?resolution=1920&format=json&index=0&mkt=${WL_MKT}")
-    _wl_check_timeout $?
-    URL=$(echo "$JSON"       | grep -oP '"url"\s*:\s*"\K[^"]+' 2>/dev/null)
-    IMG_TITLE=$(echo "$JSON" | grep -oP '"copyright"\s*:\s*"\K[^"]+' 2>/dev/null)
-
-    if [ -n "$URL" ]; then
-        curl --connect-timeout 10 --max-time 30 -sL "$URL" -o "$TARGET"
-        _wl_check_timeout $?
-        BING_LAST_DATE="$TODAY"
-    else
-        apply_random_local "Bing"
-        return
-    fi
-    MESSAGE="${MSG_FETCH_SOURCE_BING:-New wallpaper downloaded via Bing}"
-}
-
-fetch_unsplash() {
-    local TARGET="$1"
-
-    # Limit to one new download per day — rotate from gallery if already done today.
-    _wl_daily_cap "Unsplash" UNSPLASH_LAST_DATE && return
-
-    local HDR_TMP
-    HDR_TMP=$(mktemp /tmp/wl_hdr_XXXXXX)
-    # Ensure the temp file is removed even if _wl_check_timeout triggers exit 0.
-    trap 'rm -f "$HDR_TMP"' EXIT
-    local PICSUM_ID AUTHOR INFO_JSON
-
-    # Capture response headers alongside the image to extract Picsum-ID.
-    curl --connect-timeout 10 --max-time 30 -sL \
-        "https://picsum.photos/1920/1080.jpg" -D "$HDR_TMP" -o "$TARGET"
-    _wl_check_timeout $?
-
-    # Extract Picsum-ID from response header (digits only, guards against injection).
-    PICSUM_ID=$(grep -i '^picsum-id:' "$HDR_TMP" 2>/dev/null | grep -oP '\d+' | tr -d '[:space:]')
-    rm -f "$HDR_TMP"
-    trap - EXIT    # manual cleanup done; cancel the trap
-
-    # Fetch author metadata if we got a valid ID; fall back to generic title on any failure.
-    # Timeout here is intentionally not fatal: the image was already downloaded successfully.
-    if [ -n "$PICSUM_ID" ]; then
-        INFO_JSON=$(curl --connect-timeout 5 --max-time 8 -sL \
-            "https://picsum.photos/id/${PICSUM_ID}/info")
-        AUTHOR=$(echo "$INFO_JSON" | grep -oP '"author"\s*:\s*"\K[^"]+' 2>/dev/null)
-        [ -n "$AUTHOR" ] && IMG_TITLE="Photo by ${AUTHOR} (picsum #${PICSUM_ID})"
-    fi
-    [ -z "$IMG_TITLE" ] && IMG_TITLE="Unsplash / picsum.photos"
-
-    UNSPLASH_LAST_DATE="$TODAY"
-    MESSAGE="${MSG_FETCH_SOURCE_UNSPLASH:-New wallpaper downloaded via Unsplash}"
-}
-
-fetch_apod() {
-    local TARGET="$1"
-
-    # APOD has one image per day — rotate from gallery if already downloaded today.
-    _wl_daily_cap "APOD" APOD_LAST_DATE && return
-
-    local APOD_URL="" JSON MEDIA_TYPE ERR_MSG APOD_DATE
-
-    # Try up to 8 days back in case today's APOD is a video or not yet published.
-    for DAYS_AGO in 0 1 2 3 4 5 6 7; do
-        APOD_DATE=$(date -d "-${DAYS_AGO} days" +%Y-%m-%d)
-        JSON=$(curl --connect-timeout 8 --max-time 15 -sL \
-            "https://api.nasa.gov/planetary/apod?api_key=${APOD_API_KEY}&date=${APOD_DATE}")
-        _wl_check_timeout $?
-
-        # Detect API errors (rate limit, invalid key) early to avoid burning quota.
-        if echo "$JSON" | grep -q '"error"'; then
-            ERR_MSG=$(echo "$JSON" | grep -oP '"message"\s*:\s*"\K[^"]+' 2>/dev/null)
-            notify-send "WayLume ⚠️" "$(printf "${MSG_FETCH_APOD_ERROR:-APOD API: %s\nUsing local gallery.\nTip: register a free API key at api.nasa.gov}" "$ERR_MSG")"
-            apply_random_local "APOD"
-            # Mark today so the timer doesn't hammer the API again until tomorrow.
-            APOD_LAST_DATE="$TODAY"
-            return
-        fi
-
-        MEDIA_TYPE=$(echo "$JSON" | grep -oP '"media_type"\s*:\s*"\K[^"]+' 2>/dev/null)
-        if [ "$MEDIA_TYPE" = "image" ]; then
-            # Use regular url (~960px) — much faster than hdurl (4K).
-            APOD_URL=$(echo "$JSON" | grep -oP '"url"\s*:\s*"\K[^"]+' 2>/dev/null)
-            if [ -n "$APOD_URL" ]; then
-                IMG_TITLE=$(echo "$JSON" | grep -oP '"title"\s*:\s*"\K[^"]+' 2>/dev/null)
-                break
-            fi
-        fi
-    done
-
-    if [ -n "$APOD_URL" ]; then
-        curl --connect-timeout 10 --max-time 30 -sL "$APOD_URL" -o "$TARGET"
-        _wl_check_timeout $?
-        APOD_LAST_DATE="$TODAY"
-    fi
-    MESSAGE="${MSG_FETCH_SOURCE_APOD:-New wallpaper downloaded via APOD}"
-}
-
-fetch_wikimedia() {
-    local TARGET="$1"
-
-    # Wikimedia POTD changes once a day — rotate from gallery if already downloaded today.
-    _wl_daily_cap "Wikimedia" WIKIMEDIA_LAST_DATE && return
-
-    local FILENAME JSON1 JSON2 IMG_URL RAW_TITLE
-
-    # Step 1: get POTD filename from the daily template
-    JSON1=$(curl --connect-timeout 8 --max-time 15 -sL \
-        "https://commons.wikimedia.org/w/api.php?action=query&prop=images&titles=Template:Potd/${TODAY}&format=json")
-    _wl_check_timeout $?
-    FILENAME=$(echo "$JSON1" | grep -oP '"title"\s*:\s*"\KFile:[^"]+' | head -1)
-
-    if [ -z "$FILENAME" ]; then
-        apply_random_local "Wikimedia"
-        return
-    fi
-
-    # Decode JSON Unicode escapes in filename (e.g. \u00ed → í) so curl can URL-encode correctly.
-    # python3 is already a project dependency (used by build.sh).
-    FILENAME=$(python3 -c "
-import sys, re
-t = sys.stdin.read().rstrip('\n')
-print(re.sub(r'\\\\u([0-9a-fA-F]{4})', lambda m: chr(int(m.group(1), 16)), t))
-" <<< "$FILENAME" 2>/dev/null)
-
-    # Step 2: get 1920px thumbnail URL (filename is URL-encoded by curl --data-urlencode)
-    JSON2=$(curl --connect-timeout 8 --max-time 15 -sGLs \
-        "https://commons.wikimedia.org/w/api.php" \
-        --data-urlencode "titles=$FILENAME" \
-        --data "action=query&prop=imageinfo&iiprop=url&iiurlwidth=1920&format=json")
-    _wl_check_timeout $?
-    IMG_URL=$(echo "$JSON2" | grep -oP '"thumburl"\s*:\s*"\K[^"]+' | head -1)
-
-    if [ -z "$IMG_URL" ]; then
-        apply_random_local "Wikimedia"
-        return
-    fi
-
-    curl --connect-timeout 10 --max-time 30 -sL "$IMG_URL" -o "$TARGET"
-    _wl_check_timeout $?
-    WIKIMEDIA_LAST_DATE="$TODAY"
-
-    # Title: strip "File:" prefix and file extension from the already-decoded filename.
-    IMG_TITLE=$(echo "$FILENAME" | sed 's|^File:||; s|\.[^.]*$||')
-    [ -z "$IMG_TITLE" ] && IMG_TITLE="Wikimedia Picture of the Day"
-
-    MESSAGE="${MSG_FETCH_SOURCE_WIKIMEDIA:-New wallpaper downloaded via Wikimedia}"
-}
+# Backwards-compatible wrapper.
+prune_gallery() { _wl_db_prune; }
 
 # ============================================================
 # IMAGE PIPELINE
+# Depends on: SHOW_OVERLAY, DEST_DIR (set in fetcher.sh preamble)
 # ============================================================
 
 # Reject files that are not valid images (e.g. HTML error pages from failed downloads).
@@ -568,19 +531,21 @@ process_image() {
         "$TARGET" 2>/dev/null
 }
 
+# ============================================================
+# WALLPAPER DISPLAY
+# ============================================================
+
 # Build the image that will be set as wallpaper.
 # If SHOW_OVERLAY=true and a .title sidecar exists alongside TARGET, the overlay
 # is composited onto a temporary display file; otherwise TARGET is used directly.
 # Sets the global DISPLAY_PATH to the path to pass to _wl_set_wallpaper.
-# Always writes ~/.cache/waylume/waylume_current.txt so gallery navigation can
-# find the active gallery file even when DISPLAY_PATH points to the temp file.
+# Sets CURRENT_GALLERY to TARGET so gallery navigation can find the active file
+# even when the DE wallpaper points to the temporary overlay display file.
 _wl_make_display_image() {
     local TARGET="$1"
     DISPLAY_PATH="$TARGET"
 
     # Track the gallery file in memory (persisted to waylume.state via save_state).
-    # Needed because when overlay is on, the DE stores the temp display file path,
-    # not the original gallery file, which would break next/prev navigation.
     CURRENT_GALLERY="$TARGET"
 
     [ -f "$TARGET" ] && command -v convert &>/dev/null || return
@@ -626,74 +591,108 @@ _wl_make_display_image() {
     fi
 }
 
-# Set the wallpaper for the current desktop environment.
-# Supports: GNOME, ubuntu:GNOME, MATE, X-Cinnamon, KDE, XFCE.
-# Unknown DEs receive a best-effort GNOME schema attempt.
-_wl_set_wallpaper() {
-    local TARGET="$1"
+# ── DE dispatcher ────────────────────────────────────────────────────────────
+# Resolves XDG_CURRENT_DESKTOP to a canonical lowercase DE name used as the
+# suffix in _wl_set_<de> / _wl_get_<de> function names.
+# Adding support for a new DE = add two functions + one pattern here.
+_wl_de_name() {
     case "${XDG_CURRENT_DESKTOP:-}" in
-        GNOME|ubuntu:GNOME)
-            gsettings set org.gnome.desktop.background picture-uri      "file://$TARGET"
-            gsettings set org.gnome.desktop.background picture-uri-dark "file://$TARGET" ;;
-        MATE)
-            # MATE uses a plain path — no file:// prefix.
-            gsettings set org.mate.background picture-filename "$TARGET" ;;
-        X-Cinnamon)
-            gsettings set org.cinnamon.desktop.background picture-uri      "file://$TARGET"
-            gsettings set org.cinnamon.desktop.background picture-uri-dark "file://$TARGET" ;;
-        KDE)
-            plasma-apply-wallpaperimage "$TARGET" ;;
-        XFCE)
-            # Enumerate all existing last-image properties (one per monitor/workspace)
-            # and update each one. This handles multi-monitor setups automatically
-            # without having to guess monitor names (which vary per system).
-            local -a _PROPS
-            mapfile -t _PROPS < <(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep '/last-image$')
-            if [ "${#_PROPS[@]}" -gt 0 ]; then
-                local _PROP
-                for _PROP in "${_PROPS[@]}"; do
-                    xfconf-query -c xfce4-desktop -p "$_PROP" \
-                        --create -t string -s "$TARGET" 2>/dev/null || true
-                done
-            else
-                # Fresh XFCE with no wallpaper set yet — build path from first connected monitor.
-                local _MON
-                _MON=$(xrandr --current 2>/dev/null | awk '/ connected/{print $1; exit}')
-                [ -n "$_MON" ] && xfconf-query -c xfce4-desktop \
-                    -p "/backdrop/screen0/monitor${_MON}/workspace0/last-image" \
-                    --create -t string -s "$TARGET" 2>/dev/null || true
-            fi ;;
-        *)
-            # Unknown DE — attempt GNOME schema as last resort.
-            gsettings set org.gnome.desktop.background picture-uri "file://$TARGET" 2>/dev/null || true ;;
+        GNOME|ubuntu:GNOME) echo "gnome"    ;;
+        MATE)               echo "mate"     ;;
+        X-Cinnamon)         echo "cinnamon" ;;
+        KDE)                echo "kde"      ;;
+        XFCE)               echo "xfce"     ;;
+        *)                  echo "unknown"  ;;
     esac
 }
 
+# ── Per-DE set functions ──────────────────────────────────────────────────────
+
+_wl_set_gnome() {
+    gsettings set org.gnome.desktop.background picture-uri      "file://$1"
+    gsettings set org.gnome.desktop.background picture-uri-dark "file://$1"
+}
+
+_wl_set_mate() {
+    # MATE uses a plain path — no file:// prefix.
+    gsettings set org.mate.background picture-filename "$1"
+}
+
+_wl_set_cinnamon() {
+    gsettings set org.cinnamon.desktop.background picture-uri      "file://$1"
+    gsettings set org.cinnamon.desktop.background picture-uri-dark "file://$1"
+}
+
+_wl_set_kde() {
+    plasma-apply-wallpaperimage "$1"
+}
+
+_wl_set_xfce() {
+    # Enumerate all existing last-image properties (one per monitor/workspace)
+    # and update each one. This handles multi-monitor setups automatically
+    # without having to guess monitor names (which vary per system).
+    local -a _PROPS
+    mapfile -t _PROPS < <(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep '/last-image$')
+    if [ "${#_PROPS[@]}" -gt 0 ]; then
+        local _PROP
+        for _PROP in "${_PROPS[@]}"; do
+            xfconf-query -c xfce4-desktop -p "$_PROP" \
+                --create -t string -s "$1" 2>/dev/null || true
+        done
+    else
+        # Fresh XFCE with no wallpaper set yet — build path from first connected monitor.
+        local _MON
+        _MON=$(xrandr --current 2>/dev/null | awk '/ connected/{print $1; exit}')
+        [ -n "$_MON" ] && xfconf-query -c xfce4-desktop \
+            -p "/backdrop/screen0/monitor${_MON}/workspace0/last-image" \
+            --create -t string -s "$1" 2>/dev/null || true
+    fi
+}
+
+_wl_set_unknown() {
+    # Unknown DE — attempt GNOME schema as last resort.
+    gsettings set org.gnome.desktop.background picture-uri "file://$1" 2>/dev/null || true
+}
+
+# ── Per-DE get functions ──────────────────────────────────────────────────────
+# Each function prints a plain filesystem path (no file:// prefix, no quotes).
+# Returns empty string when no reliable read-back is available.
+
+_wl_get_gnome() {
+    gsettings get org.gnome.desktop.background picture-uri 2>/dev/null \
+        | tr -d "'" | sed 's|file://||'
+}
+
+_wl_get_mate() {
+    # MATE stores a plain path — no file:// stripping needed.
+    gsettings get org.mate.background picture-filename 2>/dev/null | tr -d "'"
+}
+
+_wl_get_cinnamon() {
+    gsettings get org.cinnamon.desktop.background picture-uri 2>/dev/null \
+        | tr -d "'" | sed 's|file://||'
+}
+
+_wl_get_kde()     { echo ""; }  # no reliable CLI read-back
+_wl_get_unknown() { echo ""; }
+
+_wl_get_xfce() {
+    # Read the first last-image property found (primary monitor / workspace 0).
+    local _PROP
+    _PROP=$(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep '/last-image$' | head -1)
+    [ -n "$_PROP" ] && xfconf-query -c xfce4-desktop -p "$_PROP" 2>/dev/null || echo ""
+}
+
+# ── Public API ────────────────────────────────────────────────────────────────
+
+# Set the wallpaper for the current desktop environment.
+_wl_set_wallpaper() {
+    "_wl_set_$(_wl_de_name)" "$1"
+}
+
 # Read the currently active wallpaper path for the current desktop environment.
-# Returns a plain filesystem path (no file:// prefix, no surrounding quotes).
-# Returns an empty string when no clean read-back is available (KDE, unknown DEs).
 _wl_get_current_wallpaper() {
-    case "${XDG_CURRENT_DESKTOP:-}" in
-        GNOME|ubuntu:GNOME)
-            gsettings get org.gnome.desktop.background picture-uri 2>/dev/null \
-                | tr -d "'" | sed 's|file://||' ;;
-        X-Cinnamon)
-            gsettings get org.cinnamon.desktop.background picture-uri 2>/dev/null \
-                | tr -d "'" | sed 's|file://||' ;;
-        MATE)
-            # MATE stores a plain path — no file:// stripping needed.
-            gsettings get org.mate.background picture-filename 2>/dev/null \
-                | tr -d "'" ;;
-        XFCE)
-            # Read the first last-image property found (primary monitor / workspace 0).
-            local _PROP
-            _PROP=$(xfconf-query -c xfce4-desktop -l 2>/dev/null \
-                | grep '/last-image$' | head -1)
-            [ -n "$_PROP" ] && xfconf-query -c xfce4-desktop -p "$_PROP" 2>/dev/null || echo "" ;;
-        KDE|*)
-            # No reliable CLI read-back for KDE; gallery navigation starts from beginning.
-            echo "" ;;
-    esac
+    "_wl_get_$(_wl_de_name)"
 }
 
 # Apply the wallpaper and notify the user.
@@ -707,8 +706,209 @@ apply_wallpaper() {
 }
 
 # ============================================================
+# SOURCE FUNCTIONS
+# Each function receives TARGET_PATH as $1 and is responsible
+# for populating IMG_TITLE and MESSAGE (global), and writing
+# the image file to TARGET_PATH on success.
+# ============================================================
+
+# ============================================================
+# SOURCE: Bing Daily Image
+# Depends on: WL_MKT, BING_LAST_DATE, TODAY (fetcher.sh preamble)
+#             apply_random_local, _wl_daily_cap, _wl_check_timeout
+# ============================================================
+
+fetch_bing() {
+    local TARGET="$1"
+
+    # Bing has one image per day — rotate from gallery if already downloaded today.
+    _wl_daily_cap "Bing" BING_LAST_DATE && return
+
+    local JSON URL
+    JSON=$(curl --connect-timeout 8 --max-time 15 -sL \
+        "https://bing.biturl.top/?resolution=1920&format=json&index=0&mkt=${WL_MKT}")
+    _wl_check_timeout $?
+    URL=$(echo "$JSON"       | grep -oP '"url"\s*:\s*"\K[^"]+' 2>/dev/null)
+    IMG_TITLE=$(echo "$JSON" | grep -oP '"copyright"\s*:\s*"\K[^"]+' 2>/dev/null)
+
+    if [ -n "$URL" ]; then
+        curl --connect-timeout 10 --max-time 30 -sL "$URL" -o "$TARGET"
+        _wl_check_timeout $?
+        BING_LAST_DATE="$TODAY"
+    else
+        apply_random_local "Bing"
+        return
+    fi
+    MESSAGE="${MSG_FETCH_SOURCE_BING:-New wallpaper downloaded via Bing}"
+}
+
+# ============================================================
+# SOURCE: Unsplash / picsum.photos
+# Depends on: UNSPLASH_LAST_DATE, TODAY (fetcher.sh preamble)
+#             apply_random_local, _wl_daily_cap, _wl_check_timeout
+# ============================================================
+
+fetch_unsplash() {
+    local TARGET="$1"
+
+    # Limit to one new download per day — rotate from gallery if already done today.
+    _wl_daily_cap "Unsplash" UNSPLASH_LAST_DATE && return
+
+    local HDR_TMP
+    HDR_TMP=$(mktemp /tmp/wl_hdr_XXXXXX)
+    # Ensure the temp file is removed even if _wl_check_timeout triggers exit 0.
+    trap 'rm -f "$HDR_TMP"' EXIT
+    local PICSUM_ID AUTHOR INFO_JSON
+
+    # Capture response headers alongside the image to extract Picsum-ID.
+    curl --connect-timeout 10 --max-time 30 -sL \
+        "https://picsum.photos/1920/1080.jpg" -D "$HDR_TMP" -o "$TARGET"
+    _wl_check_timeout $?
+
+    # Extract Picsum-ID from response header (digits only, guards against injection).
+    PICSUM_ID=$(grep -i '^picsum-id:' "$HDR_TMP" 2>/dev/null | grep -oP '\d+' | tr -d '[:space:]')
+    rm -f "$HDR_TMP"
+    trap - EXIT    # manual cleanup done; cancel the trap
+
+    # Fetch author metadata if we got a valid ID; fall back to generic title on any failure.
+    # Timeout here is intentionally not fatal: the image was already downloaded successfully.
+    if [ -n "$PICSUM_ID" ]; then
+        INFO_JSON=$(curl --connect-timeout 5 --max-time 8 -sL \
+            "https://picsum.photos/id/${PICSUM_ID}/info")
+        AUTHOR=$(echo "$INFO_JSON" | grep -oP '"author"\s*:\s*"\K[^"]+' 2>/dev/null)
+        [ -n "$AUTHOR" ] && IMG_TITLE="Photo by ${AUTHOR} (picsum #${PICSUM_ID})"
+    fi
+    [ -z "$IMG_TITLE" ] && IMG_TITLE="Unsplash / picsum.photos"
+
+    UNSPLASH_LAST_DATE="$TODAY"
+    MESSAGE="${MSG_FETCH_SOURCE_UNSPLASH:-New wallpaper downloaded via Unsplash}"
+}
+
+# ============================================================
+# SOURCE: NASA Astronomy Picture of the Day (APOD)
+# Depends on: APOD_API_KEY, APOD_LAST_DATE, TODAY (fetcher.sh preamble)
+#             apply_random_local, _wl_daily_cap, _wl_check_timeout
+# ============================================================
+
+fetch_apod() {
+    local TARGET="$1"
+
+    # APOD has one image per day — rotate from gallery if already downloaded today.
+    _wl_daily_cap "APOD" APOD_LAST_DATE && return
+
+    local APOD_URL="" JSON MEDIA_TYPE ERR_MSG APOD_DATE
+
+    # Try up to 8 days back in case today's APOD is a video or not yet published.
+    for DAYS_AGO in 0 1 2 3 4 5 6 7; do
+        APOD_DATE=$(date -d "-${DAYS_AGO} days" +%Y-%m-%d)
+        JSON=$(curl --connect-timeout 8 --max-time 15 -sL \
+            "https://api.nasa.gov/planetary/apod?api_key=${APOD_API_KEY}&date=${APOD_DATE}")
+        _wl_check_timeout $?
+
+        # Detect API errors (rate limit, invalid key) early to avoid burning quota.
+        if echo "$JSON" | grep -q '"error"'; then
+            ERR_MSG=$(echo "$JSON" | grep -oP '"message"\s*:\s*"\K[^"]+' 2>/dev/null)
+            notify-send "WayLume ⚠️" "$(printf "${MSG_FETCH_APOD_ERROR:-APOD API: %s\nUsing local gallery.\nTip: register a free API key at api.nasa.gov
+}" "$ERR_MSG")"
+            apply_random_local "APOD"
+            # Mark today so the timer doesn't hammer the API again until tomorrow.
+            APOD_LAST_DATE="$TODAY"
+            return
+        fi
+
+        MEDIA_TYPE=$(echo "$JSON" | grep -oP '"media_type"\s*:\s*"\K[^"]+' 2>/dev/null)
+        if [ "$MEDIA_TYPE" = "image" ]; then
+            # Use regular url (~960px) — much faster than hdurl (4K).
+            APOD_URL=$(echo "$JSON" | grep -oP '"url"\s*:\s*"\K[^"]+' 2>/dev/null)
+            if [ -n "$APOD_URL" ]; then
+                IMG_TITLE=$(echo "$JSON" | grep -oP '"title"\s*:\s*"\K[^"]+' 2>/dev/null)
+
+                # NASA sometimes serves its generic brand logo as a fallback payload
+                # instead of the actual APOD picture. Treat that as an upstream API issue.
+                if [[ "$IMG_TITLE" == *"NASA Science"* ]] || [[ "$APOD_URL" == *"nasa-logo"* ]]; then
+                    ERR_MSG="${MSG_FETCH_APOD_UPSTREAM:-NASA APOD upstream issue: the API returned the generic NASA logo instead of the daily image.}"
+                    notify-send "WayLume ⚠️" "$(printf "${MSG_FETCH_APOD_ERROR:-APOD API: %s\nUsing local gallery.\nTip: register a free API key at api.nasa.gov}" "$ERR_MSG")"
+                    apply_random_local "APOD"
+                    APOD_LAST_DATE="$TODAY"
+                    return
+                fi
+
+                break
+            fi
+        fi
+    done
+
+    if [ -n "$APOD_URL" ]; then
+        curl --connect-timeout 10 --max-time 30 -sL "$APOD_URL" -o "$TARGET"
+        _wl_check_timeout $?
+        APOD_LAST_DATE="$TODAY"
+    fi
+    MESSAGE="${MSG_FETCH_SOURCE_APOD:-New wallpaper downloaded via APOD}"
+}
+
+# ============================================================
+# SOURCE: Wikimedia Picture of the Day (POTD)
+# Depends on: WIKIMEDIA_LAST_DATE, TODAY (fetcher.sh preamble)
+#             apply_random_local, _wl_daily_cap, _wl_check_timeout
+# ============================================================
+
+fetch_wikimedia() {
+    local TARGET="$1"
+
+    # Wikimedia POTD changes once a day — rotate from gallery if already downloaded today.
+    _wl_daily_cap "Wikimedia" WIKIMEDIA_LAST_DATE && return
+
+    local FILENAME JSON1 JSON2 IMG_URL
+
+    # Step 1: get POTD filename from the daily template
+    JSON1=$(curl --connect-timeout 8 --max-time 15 -sL \
+        "https://commons.wikimedia.org/w/api.php?action=query&prop=images&titles=Template:Potd/${TODAY}&format=json")
+    _wl_check_timeout $?
+    FILENAME=$(echo "$JSON1" | grep -oP '"title"\s*:\s*"\KFile:[^"]+' | head -1)
+
+    if [ -z "$FILENAME" ]; then
+        apply_random_local "Wikimedia"
+        return
+    fi
+
+    # Decode JSON Unicode escapes in filename (e.g. \u00ed → í) so curl can URL-encode correctly.
+    # python3 is already a project dependency (used by build.sh).
+    FILENAME=$(python3 -c "
+import sys, re
+t = sys.stdin.read().rstrip('\n')
+print(re.sub(r'\\\\u([0-9a-fA-F]{4})', lambda m: chr(int(m.group(1), 16)), t))
+" <<< "$FILENAME" 2>/dev/null)
+
+    # Step 2: get 1920px thumbnail URL (filename is URL-encoded by curl --data-urlencode)
+    JSON2=$(curl --connect-timeout 8 --max-time 15 -sGLs \
+        "https://commons.wikimedia.org/w/api.php" \
+        --data-urlencode "titles=$FILENAME" \
+        --data "action=query&prop=imageinfo&iiprop=url&iiurlwidth=1920&format=json")
+    _wl_check_timeout $?
+    IMG_URL=$(echo "$JSON2" | grep -oP '"thumburl"\s*:\s*"\K[^"]+' | head -1)
+
+    if [ -z "$IMG_URL" ]; then
+        apply_random_local "Wikimedia"
+        return
+    fi
+
+    curl --connect-timeout 10 --max-time 30 -sL "$IMG_URL" -o "$TARGET"
+    _wl_check_timeout $?
+    WIKIMEDIA_LAST_DATE="$TODAY"
+
+    # Title: strip "File:" prefix and file extension from the already-decoded filename.
+    IMG_TITLE=$(echo "$FILENAME" | sed 's|^File:||; s|\.[^.]*$||')
+    [ -z "$IMG_TITLE" ] && IMG_TITLE="Wikimedia Picture of the Day"
+
+    MESSAGE="${MSG_FETCH_SOURCE_WIKIMEDIA:-New wallpaper downloaded via Wikimedia}"
+}
+
+# ============================================================
 # MAIN
 # ============================================================
+
+# Initialise db on every invocation (one-shot migration runs only if db is absent).
+_wl_db_init
 
 if [ "$1" == "--random" ]; then
     # Mode: rotate a random image already in the local gallery.
@@ -751,6 +951,45 @@ if [ "$1" == "--get-current-gallery" ]; then
     exit 0
 fi
 
+if [ "$1" == "--nav" ]; then
+    # Mode: navigate the gallery (next | prev | random) and apply the wallpaper.
+    # Prints a human-readable position string ("Image N of M") to stdout for
+    # the caller (main.sh) to display via notify-send.
+    DIRECTION="${2:-next}"
+    COUNT=$(_wl_db_count)
+    if (( COUNT == 0 )); then
+        notify-send "WayLume" "${MSG_NAV_NO_IMAGES:-No images in the gallery. Download new images first.}"
+        exit 0
+    fi
+    IDX=0
+    if [ "$DIRECTION" = "random" ]; then
+        IDX=$(( RANDOM % COUNT ))
+    else
+        CURRENT_BASE=$(basename "${CURRENT_GALLERY:-}")
+        CUR_IDX=$(_wl_db_idx_of "$CURRENT_BASE")
+        if [ "$CUR_IDX" = "-1" ] || [ -z "$CUR_IDX" ]; then
+            [ "$DIRECTION" = "prev" ] && IDX=$(( COUNT - 1 )) || IDX=0
+        elif [ "$DIRECTION" = "next" ]; then
+            IDX=$(( (CUR_IDX + 1) % COUNT ))
+        else
+            IDX=$(( (CUR_IDX - 1 + COUNT) % COUNT ))
+        fi
+    fi
+    ROW=$(_wl_db_get_by_idx "$IDX")
+    FNAME=$(printf '%s' "$ROW" | cut -f2)
+    TARGET_NAV="$DEST_DIR/$FNAME"
+    if [ ! -f "$TARGET_NAV" ]; then
+        notify-send "WayLume ⚠️" "Gallery file not found: $FNAME"
+        exit 1
+    fi
+    _wl_make_display_image "$TARGET_NAV"
+    _wl_set_wallpaper "$DISPLAY_PATH"
+    save_state
+    DISP_IDX=$(( IDX + 1 ))
+    printf "${MSG_NAV_POSITION:-📸 Image %s of %s}" "$DISP_IDX" "$COUNT"
+    exit 0
+fi
+
 # Mode: download a new image from one of the configured sources.
 IFS=',' read -r -a SOURCE_ARRAY <<< "$SOURCES"
 # Trim any stray whitespace/newlines from each source name.
@@ -761,11 +1000,13 @@ SELECTED_SOURCE="${SOURCE_ARRAY[$RANDOM % ${#SOURCE_ARRAY[@]}]}"
 TARGET_PATH="$DEST_DIR/waylume_$(date +%Y%m%d_%H%M%S).jpg"
 
 # Dispatch — only known source names are allowed; unknown values fall back to local gallery.
+# _WL_NEW_DOWNLOAD tracks whether this run produced a new file (for _wl_db_add).
+_WL_NEW_DOWNLOAD=false
 case "${SELECTED_SOURCE,,}" in
-    bing)      fetch_bing      "$TARGET_PATH" ;;
-    unsplash)  fetch_unsplash  "$TARGET_PATH" ;;
-    apod)      fetch_apod      "$TARGET_PATH" ;;
-    wikimedia) fetch_wikimedia "$TARGET_PATH" ;;
+    bing)      fetch_bing      "$TARGET_PATH"; _WL_NEW_DOWNLOAD=true ;;
+    unsplash)  fetch_unsplash  "$TARGET_PATH"; _WL_NEW_DOWNLOAD=true ;;
+    apod)      fetch_apod      "$TARGET_PATH"; _WL_NEW_DOWNLOAD=true ;;
+    wikimedia) fetch_wikimedia "$TARGET_PATH"; _WL_NEW_DOWNLOAD=true ;;
     local)
         apply_random_local "Local"
         MESSAGE="${MSG_FETCH_SOURCE_LOCAL:-🖼️ Wallpaper from local gallery}"
@@ -785,6 +1026,8 @@ process_image   "$TARGET_PATH"
 # Persist title metadata alongside the gallery file so _wl_make_display_image
 # can read it at display time (overlay is no longer baked into the stored image).
 [ -n "$IMG_TITLE" ] && printf '%s' "$IMG_TITLE" > "${TARGET_PATH}.title"
+# Register new download in the db before displaying and pruning.
+$_WL_NEW_DOWNLOAD && _wl_db_add "$(basename "$TARGET_PATH")" "$IMG_TITLE" "${SELECTED_SOURCE^}"
 apply_wallpaper "$TARGET_PATH"
 save_state   # persists CURRENT_GALLERY set by _wl_make_display_image
 prune_gallery
@@ -953,8 +1196,8 @@ MSG_INSTALL_PROMPT="O WayLume não está instalado no sistema.\nDeseja instalar 
 MSG_PIN_FAVORITES="Fixar WayLume na barra de favoritos (Dash) para acesso rápido?"
 
 # ── main menu ─────────────────────────────────────────────────────────────────
-TITLE_MENU="WayLume - Menu"
-MSG_MENU_HEADER="Gerenciador de Wallpapers\nGaleria Atual: %s\nAtualização: %s\nTítulo nas imagens: %s\nTimer: %s"
+TITLE_MENU="WayLume v${WL_VERSION} - Menu"
+MSG_MENU_HEADER="WayLume v${WL_VERSION}\nGerenciador de Wallpapers\nGaleria Atual: %s\nAtualização: %s\nTítulo nas imagens: %s\nTimer: %s"
 LABEL_OVERLAY_ON="ativado"
 LABEL_OVERLAY_OFF="desativado"
 LABEL_TIMER_ON="ativo"
@@ -1001,10 +1244,12 @@ MSG_TIMER_RESUMED="▶️ Timer retomado. Atualizações automáticas reiniciada
 # ── navegação na galeria ────────────────────────────────────────────────────────────────────────
 MSG_NAV_APPLIED="📸 %s"
 MSG_NAV_NO_IMAGES="Nenhuma imagem na galeria. Baixe novas imagens primeiro."
+MSG_NAV_POSITION="📸 Imagem %s de %s"
 
 # ── fetcher: mensagens de notify-send ────────────────────────────────────────
 MSG_FETCH_NO_IMAGES="Nenhuma imagem encontrada na galeria."
 MSG_FETCH_APOD_ERROR="APOD API: %s\nUsando galeria local.\nDica: registre uma API key gratuita em api.nasa.gov"
+MSG_FETCH_APOD_UPSTREAM="Problema upstream da NASA APOD: a API retornou a logo genérica da NASA em vez da imagem do dia."
 MSG_FETCH_INVALID_MIME="⚠️ Download inválido ignorado (%s). Tente novamente."
 MSG_FETCH_LOCAL="🔄 Galeria local (%s já baixado hoje)"
 MSG_FETCH_SOURCE_BING="Novo wallpaper baixado via Bing"
@@ -1100,8 +1345,8 @@ MSG_INSTALL_PROMPT="WayLume is not installed on this system.\nDo you want to ins
 MSG_PIN_FAVORITES="Pin WayLume to the Dash/taskbar for quick access?"
 
 # ── main menu ─────────────────────────────────────────────────────────────────
-TITLE_MENU="WayLume - Menu"
-MSG_MENU_HEADER="Wallpaper Manager\nCurrent Gallery: %s\nUpdate Interval: %s\nTitle overlay: %s\nTimer: %s"
+TITLE_MENU="WayLume v${WL_VERSION} - Menu"
+MSG_MENU_HEADER="WayLume v${WL_VERSION}\nWallpaper Manager\nCurrent Gallery: %s\nUpdate Interval: %s\nTitle overlay: %s\nTimer: %s"
 LABEL_OVERLAY_ON="on"
 LABEL_OVERLAY_OFF="off"
 LABEL_TIMER_ON="active"
@@ -1148,10 +1393,12 @@ MSG_TIMER_RESUMED="▶️ Timer resumed. Automatic wallpaper updates restarted."
 # ── gallery navigation ───────────────────────────────────────────────────────────────────────
 MSG_NAV_APPLIED="📸 %s"
 MSG_NAV_NO_IMAGES="No images in the gallery. Download new images first."
+MSG_NAV_POSITION="📸 Image %s of %s"
 
 # ── fetcher: notify-send messages ─────────────────────────────────────────────
 MSG_FETCH_NO_IMAGES="No images found in the gallery."
 MSG_FETCH_APOD_ERROR="APOD API: %s\nUsing local gallery.\nTip: register a free API key at api.nasa.gov"
+MSG_FETCH_APOD_UPSTREAM="NASA APOD upstream issue: the API returned the generic NASA logo instead of the daily image."
 MSG_FETCH_INVALID_MIME="⚠️ Invalid download ignored (%s). Please try again."
 MSG_FETCH_LOCAL="🔄 Local gallery (%s already downloaded today)"
 MSG_FETCH_SOURCE_BING="New wallpaper downloaded via Bing"
@@ -1458,56 +1705,19 @@ fetch_and_apply_wallpaper() {
     fi
 }
 
-# Navigate the local gallery circularly (direction: next | prev | random)
-# Overlay is applied at display time by waylume-fetch --set-wallpaper.
+# Navigate the local gallery circularly (direction: next | prev | random).
+# Delegates entirely to waylume-fetch --nav, which owns the db and overlay logic.
+# Prints the position indicator ("Image N of M") received from the fetcher.
 _gallery_navigate() {
     local DIRECTION="$1"
-    local FILES=()
-    while IFS= read -r -d '' f; do
-        FILES+=("$f")
-    done < <(find "$DEST_DIR" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.png" \) -print0 | sort -z)
-
-    local COUNT=${#FILES[@]}
-    if [ "$COUNT" -eq 0 ]; then
-        notify-send "WayLume" "${MSG_NAV_NO_IMAGES:-No images in the gallery. Download new images first.}"
-        return
+    local RESULT
+    RESULT=$("$FETCHER_SCRIPT" --nav "$DIRECTION" 2>/dev/null)
+    local RC=$?
+    if [ "$RC" -ne 0 ]; then
+        # Fetcher printed its own notify-send error; nothing more to do.
+        return 1
     fi
-
-    local IDX=0
-    if [ "$DIRECTION" = "random" ]; then
-        IDX=$(( RANDOM % COUNT ))
-    else
-        # Find the currently displayed gallery file in the sorted list.
-        # --get-current-gallery returns the original gallery file path even when
-        # the DE's wallpaper points to the temporary overlay display file.
-        local CURRENT
-        CURRENT=$(waylume-fetch --get-current-gallery 2>/dev/null || \
-            gsettings get org.gnome.desktop.background picture-uri 2>/dev/null \
-            | tr -d "'" | sed 's|file://||')
-        local FOUND=false
-        for i in "${!FILES[@]}"; do
-            if [ "${FILES[$i]}" = "$CURRENT" ]; then
-                IDX=$i
-                FOUND=true
-                break
-            fi
-        done
-        # If current is not from our gallery, start from beginning / end
-        if ! $FOUND; then
-            [ "$DIRECTION" = "prev" ] && IDX=$(( COUNT - 1 )) || IDX=0
-        elif [ "$DIRECTION" = "next" ]; then
-            IDX=$(( (IDX + 1) % COUNT ))
-        else
-            IDX=$(( (IDX - 1 + COUNT) % COUNT ))
-        fi
-    fi
-
-    local TARGET="${FILES[$IDX]}"
-    waylume-fetch --set-wallpaper "$TARGET" 2>/dev/null || {
-        gsettings set org.gnome.desktop.background picture-uri      "file://$TARGET"
-        gsettings set org.gnome.desktop.background picture-uri-dark "file://$TARGET"
-    }
-    notify-send "WayLume" "$(printf "${MSG_NAV_APPLIED:-📸 %s}" "$(basename "$TARGET")")"
+    [ -n "$RESULT" ] && notify-send "WayLume" "$RESULT"
 }
 
 go_next_image()   { _gallery_navigate next;   }

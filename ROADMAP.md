@@ -1,6 +1,6 @@
 # WayLume — Roadmap & Analysis
 
-> Last updated: 2026-05-17 · Based on v1.7.0 + overlay refactor
+> Last updated: 2026-06-03 · Current version: v2.0.0
 
 ---
 
@@ -64,8 +64,8 @@ Born from the gap left by Variety — persistent Wayland instability and mainten
 
 ### UX
 
-- **No gallery curation** — no favorites or trash. Users delete files manually.
-- **Blind navigation** — no position indicator ("3 of 47"), no thumbnail preview.
+- **No gallery curation UI** — `status` field (`normal|favorite|trash`) exists in `waylume.db` but there is no GUI to mark favorites or send to trash yet.
+- **Blind navigation** — no thumbnail preview. Position indicator ("Image N of M") is now shown via notify-send on `--nav`.
 - **APOD at 960px** — `hdurl` (4K) unused; opt-in quality setting desirable for HiDPI.
 
 ### Distribution
@@ -81,21 +81,21 @@ Born from the gap left by Variety — persistent Wayland instability and mainten
 
 | Version | Deliverables |
 | --- | --- |
-| v1.5.0 | Multi-DE: GNOME, MATE, Cinnamon, KDE, XFCE. `_wl_set_wallpaper` / `_wl_get_current_wallpaper` dispatchers. |
+| v1.5.0 | Multi-DE: GNOME, MATE, Cinnamon, KDE, XFCE. |
 | v1.6.0 | Local folder source. Timer pause/resume in Maintenance menu. |
 | v1.7.0 | `yad` → `zenity 4.x` (GTK4+libadwaita). Fully Wayland-native GUI. |
-| dev | Overlay at display time: gallery stores clean images; `.title` sidecar per file; `_wl_make_display_image()` composites a temp file. `CURRENT_GALLERY` persisted in `waylume.state` for correct next/prev navigation. |
+| v1.8.0 | Overlay at display time (clean gallery files + `.title` sidecar). `CURRENT_GALLERY` in state. Fresh-install fix. Atomic config writes. |
+| v2.0.0 | Gallery database (`waylume.db` TSV). Schema: `id·filename·title·source·date_iso·status`. `--nav next\|prev\|random` + position indicator. Source modularisation (`src/lib/`, `src/sources/`). `src/fetcher.sh` as skeleton. Two-pass build. Per-DE dispatcher pattern (`_wl_de_name` + `_wl_set_<de>`/`_wl_get_<de>`). `build.py` (pure Python build tool). |
 
-### v1.x — Consolidation
+### série 2.x — Foundation
 
 | Priority | Feature |
 | --- | --- |
-| 🟠 Medium | Position indicator in gallery navigation ("Image 3 of 47") |
-| 🟠 Medium | Gallery favorite/trash system |
+| 🟠 Medium | Gallery favorites/trash UI — `status` field already in db, needs GUI |
 | 🟡 Low | Optional APOD hdurl (4K opt-in for HiDPI) |
 | 🟡 Low | Wallhaven as a source |
 
-### v2.x — Distribution
+### série 3.x — Distribution
 
 | Priority | Feature |
 | --- | --- |
@@ -103,11 +103,10 @@ Born from the gap left by Variety — persistent Wayland instability and mainten
 | 🔴 High | GitHub Release with versioned tarball |
 | 🟠 Medium | Debian/Ubuntu `.deb` package |
 
-### v3.x — Architecture
+### série 4.x — Architecture
 
 | Priority | Feature |
 | --- | --- |
-| 🟠 Medium | `src/sources/` modularisation — each source in its own file with a clear interface |
 | 🟠 Medium | Multi-monitor support — one image per resolution via `gdbus`/GSettings |
 | 🟠 Medium | Resolution detection without `xrandr` (pure Wayland path) |
 | 🟡 Low | `jq` as declared dependency — replaces `grep -oP` fragility across all `fetch_*` |
@@ -117,7 +116,7 @@ Born from the gap left by Variety — persistent Wayland instability and mainten
 
 ## 6. Multi-DE Support
 
-Implemented in v1.5.0. All wallpaper operations route through `_wl_set_wallpaper()` and `_wl_get_current_wallpaper()` in `src/fetcher.sh`. Gallery navigation uses `waylume-fetch --set-wallpaper` / `--get-current-gallery`.
+Implemented in v1.5.0. All wallpaper operations route through `_wl_set_wallpaper()` and `_wl_get_current_wallpaper()` in `src/lib/wallpaper.sh`. A single `_wl_de_name()` dispatcher maps `XDG_CURRENT_DESKTOP` to a canonical name; per-DE logic lives in `_wl_set_<de>` / `_wl_get_<de>` functions — the `case` block appears only once. Gallery navigation uses `waylume-fetch --nav next|prev|random` (returns "Image N of M" to stdout), `--set-wallpaper`, and `--get-current-gallery`.
 
 | Desktop | Set | Read-back |
 | --- | --- | --- |
