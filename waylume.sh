@@ -46,7 +46,7 @@ if [[ "${LANG:-}" != *.* ]]; then
 fi
 # Fallback defaults when i18n files not yet installed (first --install run)
 : "${BTN_CLOSE:=Close}" "${BTN_NO:=No}" "${BTN_YES:=Yes}" "${BTN_OK:=OK}"
-: "${TITLE_MENU:=WayLume - Menu}" "${TITLE_INTERVAL:=Update Interval}"
+: "${TITLE_MENU:=WayLume v${WL_VERSION} - Menu}" "${TITLE_INTERVAL:=Update Interval}"
 : "${TITLE_SOURCES:=Image Sources}" "${TITLE_APOD_KEY:=WayLume - NASA API Key}"
 : "${TITLE_GALLERY_PICK:=Choose Gallery Folder}"
 : "${TITLE_UNINSTALL_CONFIRM:=Warning}" "${TITLE_GALLERY_CLEAN:=WayLume - Clean Gallery}"
@@ -822,6 +822,17 @@ fetch_apod() {
             APOD_URL=$(echo "$JSON" | grep -oP '"url"\s*:\s*"\K[^"]+' 2>/dev/null)
             if [ -n "$APOD_URL" ]; then
                 IMG_TITLE=$(echo "$JSON" | grep -oP '"title"\s*:\s*"\K[^"]+' 2>/dev/null)
+
+                # NASA sometimes serves its generic brand logo as a fallback payload
+                # instead of the actual APOD picture. Treat that as an upstream API issue.
+                if [[ "$IMG_TITLE" == *"NASA Science"* ]] || [[ "$APOD_URL" == *"nasa-logo"* ]]; then
+                    ERR_MSG="${MSG_FETCH_APOD_UPSTREAM:-NASA APOD upstream issue: the API returned the generic NASA logo instead of the daily image.}"
+                    notify-send "WayLume ⚠️" "$(printf "${MSG_FETCH_APOD_ERROR:-APOD API: %s\nUsing local gallery.\nTip: register a free API key at api.nasa.gov}" "$ERR_MSG")"
+                    apply_random_local "APOD"
+                    APOD_LAST_DATE="$TODAY"
+                    return
+                fi
+
                 break
             fi
         fi
@@ -1185,8 +1196,8 @@ MSG_INSTALL_PROMPT="O WayLume não está instalado no sistema.\nDeseja instalar 
 MSG_PIN_FAVORITES="Fixar WayLume na barra de favoritos (Dash) para acesso rápido?"
 
 # ── main menu ─────────────────────────────────────────────────────────────────
-TITLE_MENU="WayLume - Menu"
-MSG_MENU_HEADER="Gerenciador de Wallpapers\nGaleria Atual: %s\nAtualização: %s\nTítulo nas imagens: %s\nTimer: %s"
+TITLE_MENU="WayLume v${WL_VERSION} - Menu"
+MSG_MENU_HEADER="WayLume v${WL_VERSION}\nGerenciador de Wallpapers\nGaleria Atual: %s\nAtualização: %s\nTítulo nas imagens: %s\nTimer: %s"
 LABEL_OVERLAY_ON="ativado"
 LABEL_OVERLAY_OFF="desativado"
 LABEL_TIMER_ON="ativo"
@@ -1238,6 +1249,7 @@ MSG_NAV_POSITION="📸 Imagem %s de %s"
 # ── fetcher: mensagens de notify-send ────────────────────────────────────────
 MSG_FETCH_NO_IMAGES="Nenhuma imagem encontrada na galeria."
 MSG_FETCH_APOD_ERROR="APOD API: %s\nUsando galeria local.\nDica: registre uma API key gratuita em api.nasa.gov"
+MSG_FETCH_APOD_UPSTREAM="Problema upstream da NASA APOD: a API retornou a logo genérica da NASA em vez da imagem do dia."
 MSG_FETCH_INVALID_MIME="⚠️ Download inválido ignorado (%s). Tente novamente."
 MSG_FETCH_LOCAL="🔄 Galeria local (%s já baixado hoje)"
 MSG_FETCH_SOURCE_BING="Novo wallpaper baixado via Bing"
@@ -1333,8 +1345,8 @@ MSG_INSTALL_PROMPT="WayLume is not installed on this system.\nDo you want to ins
 MSG_PIN_FAVORITES="Pin WayLume to the Dash/taskbar for quick access?"
 
 # ── main menu ─────────────────────────────────────────────────────────────────
-TITLE_MENU="WayLume - Menu"
-MSG_MENU_HEADER="Wallpaper Manager\nCurrent Gallery: %s\nUpdate Interval: %s\nTitle overlay: %s\nTimer: %s"
+TITLE_MENU="WayLume v${WL_VERSION} - Menu"
+MSG_MENU_HEADER="WayLume v${WL_VERSION}\nWallpaper Manager\nCurrent Gallery: %s\nUpdate Interval: %s\nTitle overlay: %s\nTimer: %s"
 LABEL_OVERLAY_ON="on"
 LABEL_OVERLAY_OFF="off"
 LABEL_TIMER_ON="active"
@@ -1386,6 +1398,7 @@ MSG_NAV_POSITION="📸 Image %s of %s"
 # ── fetcher: notify-send messages ─────────────────────────────────────────────
 MSG_FETCH_NO_IMAGES="No images found in the gallery."
 MSG_FETCH_APOD_ERROR="APOD API: %s\nUsing local gallery.\nTip: register a free API key at api.nasa.gov"
+MSG_FETCH_APOD_UPSTREAM="NASA APOD upstream issue: the API returned the generic NASA logo instead of the daily image."
 MSG_FETCH_INVALID_MIME="⚠️ Invalid download ignored (%s). Please try again."
 MSG_FETCH_LOCAL="🔄 Local gallery (%s already downloaded today)"
 MSG_FETCH_SOURCE_BING="New wallpaper downloaded via Bing"

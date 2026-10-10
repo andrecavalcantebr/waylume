@@ -46,7 +46,7 @@ if [[ "${LANG:-}" != *.* ]]; then
 fi
 # Fallback defaults when i18n files not yet installed (first --install run)
 : "${BTN_CLOSE:=Close}" "${BTN_NO:=No}" "${BTN_YES:=Yes}" "${BTN_OK:=OK}"
-: "${TITLE_MENU:=WayLume - Menu}" "${TITLE_INTERVAL:=Update Interval}"
+: "${TITLE_MENU:=WayLume v${WL_VERSION} - Menu}" "${TITLE_INTERVAL:=Update Interval}"
 : "${TITLE_SOURCES:=Image Sources}" "${TITLE_APOD_KEY:=WayLume - NASA API Key}"
 : "${TITLE_GALLERY_PICK:=Choose Gallery Folder}"
 : "${TITLE_UNINSTALL_CONFIRM:=Warning}" "${TITLE_GALLERY_CLEAN:=WayLume - Clean Gallery}"

@@ -36,6 +36,17 @@ fetch_apod() {
             APOD_URL=$(echo "$JSON" | grep -oP '"url"\s*:\s*"\K[^"]+' 2>/dev/null)
             if [ -n "$APOD_URL" ]; then
                 IMG_TITLE=$(echo "$JSON" | grep -oP '"title"\s*:\s*"\K[^"]+' 2>/dev/null)
+
+                # NASA sometimes serves its generic brand logo as a fallback payload
+                # instead of the actual APOD picture. Treat that as an upstream API issue.
+                if [[ "$IMG_TITLE" == *"NASA Science"* ]] || [[ "$APOD_URL" == *"nasa-logo"* ]]; then
+                    ERR_MSG="${MSG_FETCH_APOD_UPSTREAM:-NASA APOD upstream issue: the API returned the generic NASA logo instead of the daily image.}"
+                    notify-send "WayLume ⚠️" "$(printf "${MSG_FETCH_APOD_ERROR:-APOD API: %s\nUsing local gallery.\nTip: register a free API key at api.nasa.gov}" "$ERR_MSG")"
+                    apply_random_local "APOD"
+                    APOD_LAST_DATE="$TODAY"
+                    return
+                fi
+
                 break
             fi
         fi
